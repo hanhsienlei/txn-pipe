@@ -11,13 +11,16 @@ import type { Entry } from '../types/transaction'
 
 const client = new Anthropic()
 
-const SYSTEM_PROMPT = `You are a financial data extractor. Given an image of a receipt, credit card notification screenshot, bank transfer notification, or payslip, extract the transaction data and return it as strict JSON with no markdown or extra text.
+const SYSTEM_PROMPT = `You are a financial data extractor. Given an image of a receipt, credit card notification screenshot, bank transfer notification, or payslip, extract ALL transactions visible and return them as strict JSON with no markdown or extra text.
 
-Determine if this is an expense or income:
+Always return an array, even for a single transaction:
+{ "entries": [ <entry>, ... ] }
+
+For each transaction, determine if it is an expense or income:
 - expense: purchases, bills, fees, subscriptions
 - income: salary, rent received, freelance payment, reimbursement
 
-For EXPENSE return exactly:
+Each EXPENSE entry:
 {
   "type": "expense",
   "expense": "<description of what was purchased>",
@@ -28,7 +31,7 @@ For EXPENSE return exactly:
   "currency": "<3-letter code>"
 }
 
-For INCOME return exactly:
+Each INCOME entry:
 {
   "type": "income",
   "income": "<description of income source>",
@@ -49,10 +52,10 @@ Default account: ${DEFAULT_ACCOUNT}
 
 If you cannot determine a field with confidence, use the most reasonable default. Never return null or omit fields.`
 
-export async function extractFromImage(base64Image: string, mimeType: string): Promise<Entry> {
+export async function extractFromImage(base64Image: string, mimeType: string): Promise<Entry[]> {
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 512,
+    max_tokens: 1024,
     system: SYSTEM_PROMPT,
     messages: [
       {
@@ -79,8 +82,12 @@ export async function extractFromImage(base64Image: string, mimeType: string): P
   const cleaned = text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
 
   try {
-    const parsed = JSON.parse(cleaned) as Entry
-    return parsed
+    const parsed = JSON.parse(cleaned) as { entries: Entry[] } | Entry
+    // Handle both { entries: [...] } and a bare single entry
+    if ('entries' in parsed && Array.isArray(parsed.entries)) {
+      return parsed.entries
+    }
+    return [parsed as Entry]
   } catch {
     throw new Error(`Failed to parse Claude response: ${text}`)
   }

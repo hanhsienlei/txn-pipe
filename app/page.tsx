@@ -24,14 +24,15 @@ export default function HomePage() {
         body: JSON.stringify({ image: base64, mimeType }),
       })
       dbg('response status:', res.status)
-      const data = (await res.json()) as Entry | { error: string }
+      const data = (await res.json()) as { entries: Entry[] } | { error: string }
       if (!res.ok) {
         dbg('ERR extract:', (data as { error: string }).error)
         setError((data as { error: string }).error ?? 'Extraction failed')
         return
       }
-      dbg('success, type:', (data as Entry).type)
-      sessionStorage.setItem('txnpipe_entry', JSON.stringify(data))
+      const { entries } = data as { entries: Entry[] }
+      dbg('success, entries:', entries.length)
+      sessionStorage.setItem('txnpipe_entries', JSON.stringify(entries))
       router.push('/review')
     } catch (err) {
       dbg('ERR fetch:', String(err))

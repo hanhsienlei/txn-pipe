@@ -14,7 +14,10 @@ interface Props {
   initial: Entry
   onSubmit: (entry: Entry) => void
   onRetake: () => void
+  onChange?: (entry: Entry) => void
   submitting?: boolean
+  submitLabel?: string
+  retakeLabel?: string
 }
 
 function Field({
@@ -35,13 +38,17 @@ function Field({
 const inputClass =
   'w-full border border-neutral-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-black'
 
-export default function EntryForm({ initial, onSubmit, onRetake, submitting = false }: Props) {
+export default function EntryForm({ initial, onSubmit, onRetake, onChange, submitting = false, submitLabel, retakeLabel }: Props) {
   const [entry, setEntry] = useState<Entry>(initial)
 
   function setField<K extends keyof IncomeEntry>(key: K, value: IncomeEntry[K]): void
   function setField<K extends keyof ExpenseEntry>(key: K, value: ExpenseEntry[K]): void
   function setField(key: string, value: unknown) {
-    setEntry((prev) => ({ ...prev, [key]: value }))
+    setEntry((prev) => {
+      const next = { ...prev, [key]: value }
+      onChange?.(next as Entry)
+      return next as Entry
+    })
   }
 
   const isIncome = entry.type === 'income'
@@ -224,14 +231,14 @@ export default function EntryForm({ initial, onSubmit, onRetake, submitting = fa
           onClick={onRetake}
           className="flex-1 py-3 rounded-xl border border-neutral-300 font-medium text-sm"
         >
-          Retake
+          {retakeLabel ?? 'Retake'}
         </button>
         <button
           type="submit"
           disabled={submitting}
           className="flex-1 py-3 rounded-xl bg-black text-white font-medium text-sm disabled:opacity-50"
         >
-          {submitting ? 'Saving...' : 'Approve & Save'}
+          {submitting ? 'Saving...' : (submitLabel ?? 'Approve & Save')}
         </button>
       </div>
     </form>

@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
   const mimeType = body.mimeType ?? 'image/jpeg'
 
   try {
-    const entry = await extractFromImage(body.image, mimeType)
-    return NextResponse.json(entry)
+    const entries = await extractFromImage(body.image, mimeType)
+    return NextResponse.json({ entries })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Extraction failed'
     return NextResponse.json({ error: message }, { status: 500 })
