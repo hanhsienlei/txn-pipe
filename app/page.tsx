@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import PhotoCapture from '@/components/PhotoCapture'
-import DebugLog, { dbg } from '@/components/DebugLog'
+import { dbg } from '@/components/DebugLog'
 import type { Entry } from '@/types/transaction'
 import Link from 'next/link'
 
@@ -51,7 +51,7 @@ export default function HomePage() {
         </Link>
       </header>
 
-      <div className="flex-1 flex flex-col items-center justify-center px-5 gap-6 pb-52">
+      <div className="flex-1 flex flex-col items-center justify-center px-5 gap-6">
         <p className="text-center text-neutral-500 text-sm max-w-xs">
           Snap a receipt, credit card notification, or payslip — TxnPipe will extract and log it to
           your spreadsheet.
@@ -61,7 +61,6 @@ export default function HomePage() {
 
         {error && <p className="text-sm text-red-500 text-center max-w-xs">{error}</p>}
       </div>
-      <DebugLog />
     </main>
   )
 }
