@@ -57,7 +57,7 @@ export default function HomePage() {
           your spreadsheet.
         </p>
 
-        <PhotoCapture onCapture={handleCapture} loading={loading} onError={setError} />
+        <PhotoCapture onCapture={handleCapture} loading={loading} onError={(msg) => setError(msg || null)} />
 
         {error && <p className="text-sm text-red-500 text-center max-w-xs">{error}</p>}
       </div>

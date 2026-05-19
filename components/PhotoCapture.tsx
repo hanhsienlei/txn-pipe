@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { dbg } from '@/components/DebugLog'
 
 interface Props {
@@ -36,6 +36,16 @@ export default function PhotoCapture({ onCapture, loading = false, onError }: Pr
   const [preview, setPreview] = useState<string | null>(null)
   const [step, setStep] = useState<Step>('idle')
   const busy = loading || step !== 'idle'
+
+  useEffect(() => {
+    if (!loading && step === 'sending') setStep('idle')
+  }, [loading, step])
+
+  function handleCancel() {
+    setPreview(null)
+    setStep('idle')
+    onError?.('')
+  }
 
   async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -77,9 +87,20 @@ export default function PhotoCapture({ onCapture, loading = false, onError }: Pr
   return (
     <div className="flex flex-col items-center gap-4 w-full">
       {preview && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={preview} alt="Selected"
-          className="w-full max-w-sm rounded-xl object-contain max-h-72 border border-neutral-700" />
+        <div className="relative w-full max-w-sm">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview} alt="Selected"
+            className="w-full rounded-xl object-contain max-h-72 border border-neutral-700" />
+          {!busy && (
+            <button
+              onClick={handleCancel}
+              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white text-sm flex items-center justify-center"
+              aria-label="Clear"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       )}
 
       <div className="flex gap-3 w-full max-w-sm">

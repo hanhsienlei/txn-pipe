@@ -79,16 +79,25 @@ export async function extractFromImage(base64Image: string, mimeType: string): P
   })
 
   const text = message.content[0].type === 'text' ? message.content[0].text : ''
-  const cleaned = text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+  // Extract JSON from markdown code block or raw text
+  const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  const jsonStr = codeBlock ? codeBlock[1].trim() : text.trim()
 
+  let parsed: { entries: Entry[] } | Entry
   try {
-    const parsed = JSON.parse(cleaned) as { entries: Entry[] } | Entry
-    // Handle both { entries: [...] } and a bare single entry
-    if ('entries' in parsed && Array.isArray(parsed.entries)) {
-      return parsed.entries
-    }
-    return [parsed as Entry]
+    parsed = JSON.parse(jsonStr) as { entries: Entry[] } | Entry
   } catch {
-    throw new Error(`Failed to parse Claude response: ${text}`)
+    throw new Error('Could not identify any transactions in this image. Please try a clearer photo.')
   }
+
+  const entries =
+    'entries' in parsed && Array.isArray(parsed.entries)
+      ? parsed.entries
+      : [parsed as Entry]
+
+  if (entries.length === 0) {
+    throw new Error('No transactions found in this image. Please try a different photo.')
+  }
+
+  return entries
 }
