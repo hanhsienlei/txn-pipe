@@ -1,0 +1,17 @@
+{
+  "name": "TxnPipe",
+  "short_name": "TxnPipe",
+  "description": "Snap a photo, pipe it to your spreadsheet",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}
