@@ -48,7 +48,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 rounded-xl bg-black text-white font-medium text-sm disabled:opacity-50"
+          className="w-full py-3 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-medium text-sm disabled:opacity-50"
         >
           {loading ? 'Checking…' : 'Enter'}
         </button>

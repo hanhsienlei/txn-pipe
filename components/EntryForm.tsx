@@ -96,7 +96,7 @@ export default function EntryForm({ initial, onSubmit, onRetake, onChange, submi
           type="button"
           onClick={() => entry.type === 'income' && handleTypeToggle()}
           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
-            !isIncome ? 'bg-black text-white' : 'bg-white text-neutral-600'
+            !isIncome ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900' : 'bg-white text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
           }`}
         >
           Expense
@@ -105,7 +105,7 @@ export default function EntryForm({ initial, onSubmit, onRetake, onChange, submi
           type="button"
           onClick={() => entry.type === 'expense' && handleTypeToggle()}
           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
-            isIncome ? 'bg-black text-white' : 'bg-white text-neutral-600'
+            isIncome ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900' : 'bg-white text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
           }`}
         >
           Income
@@ -236,7 +236,7 @@ export default function EntryForm({ initial, onSubmit, onRetake, onChange, submi
         <button
           type="submit"
           disabled={submitting}
-          className="flex-1 py-3 rounded-xl bg-black text-white font-medium text-sm disabled:opacity-50"
+          className="flex-1 py-3 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-medium text-sm disabled:opacity-50"
         >
           {submitting ? 'Saving...' : (submitLabel ?? 'Approve & Save')}
         </button>
