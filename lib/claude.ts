@@ -11,7 +11,10 @@ import type { Entry } from '../types/transaction'
 
 const client = new Anthropic()
 
-const SYSTEM_PROMPT = `You are a financial data extractor. Given an image of a receipt, credit card notification screenshot, bank transfer notification, or payslip, extract ALL transactions visible and return them as strict JSON with no markdown or extra text.
+function buildSystemPrompt(today: string) {
+  return `You are a financial data extractor. Given an image of a receipt, credit card notification screenshot, bank transfer notification, or payslip, extract ALL transactions visible and return them as strict JSON with no markdown or extra text.
+
+Today's date is ${today}. When a date in the image is ambiguous or incomplete (e.g. only shows a day like "Fri 29" or "Nov 29" without a year), assume it is the most recent past occurrence of that date relative to today. If you cannot determine the date at all, use today's date.
 
 Always return an array, even for a single transaction:
 { "entries": [ <entry>, ... ] }
@@ -51,12 +54,14 @@ Default currency: ${DEFAULT_CURRENCY}
 Default account: ${DEFAULT_ACCOUNT}
 
 If you cannot determine a field with confidence, use the most reasonable default. Never return null or omit fields.`
+}
 
 export async function extractFromImage(base64Image: string, mimeType: string): Promise<Entry[]> {
+  const today = new Date().toISOString().slice(0, 10)
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(today),
     messages: [
       {
         role: 'user',
