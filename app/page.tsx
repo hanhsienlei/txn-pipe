@@ -46,9 +46,14 @@ export default function HomePage() {
     <main className="flex flex-col min-h-dvh">
       <header className="flex items-center justify-between px-5 pt-12 pb-4">
         <h1 className="text-xl font-bold tracking-tight">TxnPipe</h1>
-        <Link href="/history" className="text-sm text-neutral-500 underline-offset-2 hover:underline">
-          History
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/analytics" className="text-sm text-neutral-500 underline-offset-2 hover:underline">
+            Analytics
+          </Link>
+          <Link href="/history" className="text-sm text-neutral-500 underline-offset-2 hover:underline">
+            History
+          </Link>
+        </div>
       </header>
 
       <div className="flex-1 flex flex-col items-center justify-center px-5 gap-6">
