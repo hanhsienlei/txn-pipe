@@ -1,0 +1,14 @@
+{
+	"image": "golden-dataset/009.png",
+	"expected": [
+		{
+			"type": "expense",
+			"expense": "Apple i cloud storage",
+			"amount": 14.99,
+			"date": "2026-06-04",
+			"account": "NAB AUD",
+			"category": "Growth",
+			"currency": "AUD"
+		}
+	]
+}

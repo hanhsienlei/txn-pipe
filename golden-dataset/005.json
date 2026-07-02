@@ -1,0 +1,14 @@
+{
+	"image": "golden-dataset/005.png",
+	"expected": [
+		{
+			"type": "expense",
+			"expense": "Urban Climb (rock climbing gym)",
+			"amount": 29,
+			"date": "2026-06-12",
+			"account": "NAB AUD",
+			"category": "Health",
+			"currency": "AUD"
+		}
+	]
+}

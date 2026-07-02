@@ -1,0 +1,15 @@
+{
+	"image": "golden-dataset/011.png",
+	"expected": [
+		{
+			"type": "income",
+			"income": "Ibis Hotels - Food & Beverage Attendant salary (9 June 2026 to 15 June 2026)",
+			"amount": 426.6,
+			"date": "2026-06-01",
+			"accounts": "NAB AUD",
+			"source": "Salary",
+			"currency": "AUD",
+			"tax": "after tax"
+		}
+	]
+}

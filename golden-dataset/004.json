@@ -1,0 +1,14 @@
+{
+	"image": "golden-dataset/004.png",
+	"expected": [
+		{
+			"type": "expense",
+			"expense": "Adelaide Metro public transport",
+			"amount": 4.55,
+			"date": "2026-06-12",
+			"account": "NAB AUD",
+			"category": "Living",
+			"currency": "AUD"
+		}
+	]
+}

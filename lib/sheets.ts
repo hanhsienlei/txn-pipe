@@ -65,11 +65,11 @@ export async function getExpenseAnalytics(year: number, month: number): Promise<
       date: String(row[2] ?? ''),
       category: String(row[4] ?? ''),
     }))
-    .filter((e) => !isNaN(e.amount) && e.date.includes('/') && e.category)
+    .filter((e) => !isNaN(e.amount) && e.date.includes('-') && e.category)
 
   // Breakdown for the selected month
   const selectedExpenses = expenses.filter((e) => {
-    const parts = e.date.split('/')
+    const parts = e.date.split('-')
     return Number(parts[0]) === year && Number(parts[1]) === month
   })
 
@@ -96,14 +96,14 @@ export async function getExpenseAnalytics(year: number, month: number): Promise<
 
   const trend: TrendItem[] = trendMonths.map(({ year: y, month: m }) => {
     const monthExpenses = expenses.filter((e) => {
-      const parts = e.date.split('/')
+      const parts = e.date.split('-')
       return Number(parts[0]) === y && Number(parts[1]) === m
     })
     const totals: Record<string, number> = {}
     for (const e of monthExpenses) {
       totals[e.category] = Math.round(((totals[e.category] ?? 0) + e.amount) * 100) / 100
     }
-    return { month: `${y}/${String(m).padStart(2, '0')}`, ...totals }
+    return { month: `${y}-${String(m).padStart(2, '0')}`, ...totals }
   })
 
   return { breakdown, trend }

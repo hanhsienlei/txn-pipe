@@ -1,0 +1,14 @@
+{
+	"image": "golden-dataset/007.png",
+	"expected": [
+		{
+			"type": "expense",
+			"expense": "Coles (Northpark Shopping Centre)",
+			"amount": 65.56,
+			"date": "2026-06-09",
+			"account": "NAB AUD",
+			"category": "Food & Dining",
+			"currency": "AUD"
+		}
+	]
+}
