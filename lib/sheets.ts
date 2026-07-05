@@ -16,6 +16,16 @@ export interface AnalyticsData {
   trend: TrendItem[]
 }
 
+// Sheet tab names are personal config, not code. Read at call time so tests
+// (which set env in beforeEach) and different deployments both work.
+function expenseTab(): string {
+  return process.env.SHEET_EXPENSE_TAB ?? 'Expense'
+}
+
+function incomeTab(): string {
+  return process.env.SHEET_INCOME_TAB ?? 'Income'
+}
+
 function getAuth() {
   const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY
   if (!keyRaw) throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY is not set')
@@ -44,6 +54,17 @@ function toExpenseRow(entry: ExpenseEntry): (string | number)[] {
   return [entry.expense, entry.amount, entry.date, entry.account, entry.category, entry.currency]
 }
 
+// Extraction now writes ISO `YYYY-MM-DD`, but historical rows may still be stored in the
+// legacy `YYYY/M/D` format. Parse both so old analytics rows aren't silently dropped.
+function parseYearMonth(date: string): { year: number; month: number } | null {
+  const parts = date.split(/[-/]/)
+  if (parts.length < 2) return null
+  const year = Number(parts[0])
+  const month = Number(parts[1])
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return null
+  return { year, month }
+}
+
 export async function getExpenseAnalytics(year: number, month: number): Promise<AnalyticsData> {
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID
   if (!spreadsheetId) throw new Error('GOOGLE_SPREADSHEET_ID is not set')
@@ -53,7 +74,7 @@ export async function getExpenseAnalytics(year: number, month: number): Promise<
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: '錢錢去哪裡-支出!A:F',
+    range: `${expenseTab()}!A:F`,
   })
 
   const rows = res.data.values ?? []
@@ -65,12 +86,12 @@ export async function getExpenseAnalytics(year: number, month: number): Promise<
       date: String(row[2] ?? ''),
       category: String(row[4] ?? ''),
     }))
-    .filter((e) => !isNaN(e.amount) && e.date.includes('-') && e.category)
+    .filter((e) => !isNaN(e.amount) && parseYearMonth(e.date) !== null && e.category)
 
   // Breakdown for the selected month
   const selectedExpenses = expenses.filter((e) => {
-    const parts = e.date.split('-')
-    return Number(parts[0]) === year && Number(parts[1]) === month
+    const ym = parseYearMonth(e.date)
+    return ym?.year === year && ym.month === month
   })
 
   const breakdownMap = new Map<string, number>()
@@ -96,8 +117,8 @@ export async function getExpenseAnalytics(year: number, month: number): Promise<
 
   const trend: TrendItem[] = trendMonths.map(({ year: y, month: m }) => {
     const monthExpenses = expenses.filter((e) => {
-      const parts = e.date.split('-')
-      return Number(parts[0]) === y && Number(parts[1]) === m
+      const ym = parseYearMonth(e.date)
+      return ym?.year === y && ym.month === m
     })
     const totals: Record<string, number> = {}
     for (const e of monthExpenses) {
@@ -116,7 +137,7 @@ export async function appendEntry(entry: Entry): Promise<void> {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
 
-  const range = entry.type === 'income' ? '錢錢去哪裡-收入!A:G' : '錢錢去哪裡-支出!A:F'
+  const range = entry.type === 'income' ? `${incomeTab()}!A:G` : `${expenseTab()}!A:F`
   const row = entry.type === 'income' ? toIncomeRow(entry) : toExpenseRow(entry)
 
   await sheets.spreadsheets.values.append({
