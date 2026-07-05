@@ -3,7 +3,7 @@ export interface IncomeEntry {
   income: string
   amount: number
   currency: string
-  date: string // YYYY/MM/DD
+  date: string // YYYY-MM-DD
   source: string
   accounts: string
   tax: string
@@ -13,7 +13,7 @@ export interface ExpenseEntry {
   type: 'expense'
   expense: string
   amount: number
-  date: string // YYYY/M/D
+  date: string // YYYY-MM-DD
   account: string
   category: string
   currency: string

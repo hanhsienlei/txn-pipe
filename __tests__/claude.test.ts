@@ -2,100 +2,115 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Entry } from '@/types/transaction'
 import { EXPENSE_CATEGORIES, INCOME_SOURCES } from '@/lib/categories'
 
-const mockCreate = vi.fn()
+const mockParse = vi.fn()
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: vi.fn(function (this: unknown) {
     // @ts-expect-error vitest mock
-    this.messages = { create: mockCreate }
+    this.messages = { parse: mockParse }
   }),
 }))
 
-describe('extractFromImage', () => {
+// The SDK zod helper runs for real; we only stub the network call (messages.parse).
+const usage = { input_tokens: 100, output_tokens: 50 }
+
+describe('extractFromImageDetailed', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('parses a valid expense JSON response from Claude', async () => {
-    const mockEntry: Entry = {
+  it('returns the schema-validated expense entries and token usage', async () => {
+    const entry: Entry = {
       type: 'expense',
       expense: 'Coffee',
       amount: 5.5,
-      date: '2026/5/16',
+      date: '2026-05-16',
       account: 'NAB AUD',
       category: 'Food & Dining',
       currency: 'AUD',
     }
-    mockCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: JSON.stringify(mockEntry) }],
+    mockParse.mockResolvedValueOnce({
+      parsed_output: { entries: [entry] },
+      content: [{ type: 'text', text: JSON.stringify({ entries: [entry] }) }],
+      usage,
+      stop_reason: 'end_turn',
+    })
+
+    const { extractFromImageDetailed } = await import('@/lib/claude')
+    const result = await extractFromImageDetailed('base64data', 'image/jpeg')
+    expect(result.entries).toEqual([entry])
+    expect(result.usage).toEqual(usage)
+    expect(result.model).toBe('claude-sonnet-4-6')
+  })
+
+  it('passes a structured-output format to the model', async () => {
+    mockParse.mockResolvedValueOnce({
+      parsed_output: {
+        entries: [
+          {
+            type: 'income',
+            income: 'Salary',
+            amount: 3000,
+            currency: 'AUD',
+            date: '2026-05-01',
+            source: 'Salary',
+            accounts: 'NAB AUD',
+            tax: 'after tax',
+          },
+        ],
+      },
+      content: [],
+      usage,
+      stop_reason: 'end_turn',
     })
 
     const { extractFromImage } = await import('@/lib/claude')
-    const result = await extractFromImage('base64data', 'image/jpeg')
-    expect(result).toEqual(mockEntry)
+    await extractFromImage('base64data', 'image/png')
+
+    const callArgs = mockParse.mock.calls[0][0] as { output_config?: { format?: unknown } }
+    expect(callArgs.output_config?.format).toBeDefined()
   })
 
-  it('parses a valid income JSON response from Claude', async () => {
-    const mockEntry: Entry = {
-      type: 'income',
-      income: 'Salary April',
-      amount: 3000,
-      currency: 'AUD',
-      date: '2026/05/01',
-      source: 'Salary',
-      accounts: 'NAB AUD',
-      tax: 'after tax',
-    }
-    mockCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: JSON.stringify(mockEntry) }],
-    })
-
-    const { extractFromImage } = await import('@/lib/claude')
-    const result = await extractFromImage('base64data', 'image/png')
-    expect(result).toEqual(mockEntry)
-  })
-
-  it('strips markdown code fences from Claude response', async () => {
-    const mockEntry: Entry = {
-      type: 'expense',
-      expense: 'Bus',
-      amount: 3.2,
-      date: '2026/5/16',
-      account: 'NAB AUD',
-      category: 'Living',
-      currency: 'AUD',
-    }
-    mockCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: '```json\n' + JSON.stringify(mockEntry) + '\n```' }],
-    })
-
-    const { extractFromImage } = await import('@/lib/claude')
-    const result = await extractFromImage('base64data', 'image/jpeg')
-    expect(result).toEqual(mockEntry)
-  })
-
-  it('throws if Claude returns unparseable text', async () => {
-    mockCreate.mockResolvedValueOnce({
+  it('rejects (throws) when the response fails schema validation', async () => {
+    mockParse.mockResolvedValueOnce({
+      parsed_output: null,
       content: [{ type: 'text', text: 'I cannot read this image.' }],
+      usage,
+      stop_reason: 'refusal',
     })
 
-    const { extractFromImage } = await import('@/lib/claude')
-    await expect(extractFromImage('base64data', 'image/jpeg')).rejects.toThrow()
+    const { extractFromImageDetailed } = await import('@/lib/claude')
+    await expect(extractFromImageDetailed('base64data', 'image/jpeg')).rejects.toThrow()
+  })
+
+  it('throws when the model returns zero entries', async () => {
+    mockParse.mockResolvedValueOnce({
+      parsed_output: { entries: [] },
+      content: [],
+      usage,
+      stop_reason: 'end_turn',
+    })
+
+    const { extractFromImageDetailed } = await import('@/lib/claude')
+    await expect(extractFromImageDetailed('base64data', 'image/jpeg')).rejects.toThrow()
   })
 
   it('system prompt includes all expense categories and income sources', async () => {
-    mockCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: '{}' }],
+    mockParse.mockResolvedValueOnce({
+      parsed_output: { entries: [] },
+      content: [],
+      usage,
+      stop_reason: 'end_turn',
     })
 
     const { extractFromImage } = await import('@/lib/claude')
     try {
       await extractFromImage('x', 'image/jpeg')
     } catch {
-      // parse error expected
+      // zero-entry throw expected
     }
 
-    const callArgs = mockCreate.mock.calls[0][0] as { system: string }
+    const callArgs = mockParse.mock.calls[0][0] as { system: string }
     for (const cat of EXPENSE_CATEGORIES) {
       expect(callArgs.system).toContain(cat)
     }

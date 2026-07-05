@@ -1,0 +1,14 @@
+{
+	"image": "golden-dataset/010.png",
+	"expected": [
+		{
+			"type": "expense",
+			"expense": "Medibank - health insurance",
+			"amount": 57.01,
+			"date": "2026-06-01",
+			"account": "NAB AUD",
+			"category": "Health",
+			"currency": "AUD"
+		}
+	]
+}

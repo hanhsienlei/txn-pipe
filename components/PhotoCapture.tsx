@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { dbg } from '@/components/DebugLog'
 
 interface Props {
@@ -30,16 +30,15 @@ function readAsBase64(file: File): Promise<{ base64: string; mimeType: string }>
   })
 }
 
-type Step = 'idle' | 'reading' | 'sending'
+type Step = 'idle' | 'reading'
 
 export default function PhotoCapture({ onCapture, loading = false, onError }: Props) {
   const [preview, setPreview] = useState<string | null>(null)
   const [step, setStep] = useState<Step>('idle')
+  // `busy` covers the whole flow with no gap: `step` is 'reading' while the file is
+  // read, and the parent sets `loading` synchronously inside onCapture — React
+  // batches that with our setStep('idle'), so `busy` never flickers false between.
   const busy = loading || step !== 'idle'
-
-  useEffect(() => {
-    if (!loading && step === 'sending') setStep('idle')
-  }, [loading, step])
 
   function handleCancel() {
     setPreview(null)
@@ -57,8 +56,8 @@ export default function PhotoCapture({ onCapture, loading = false, onError }: Pr
       setPreview(URL.createObjectURL(file))
       const { base64, mimeType } = await readAsBase64(file)
       dbg('read ok, mime:', mimeType)
-      setStep('sending')
       onCapture(base64, mimeType)
+      setStep('idle')
     } catch (err) {
       setStep('idle')
       const msg = err instanceof Error ? err.message : 'Could not read image'

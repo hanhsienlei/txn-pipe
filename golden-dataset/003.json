@@ -1,0 +1,14 @@
+{
+	"image": "golden-dataset/003.png",
+	"expected": [
+		{
+			"type": "expense",
+			"expense": "Coco South Australia Pty, Adelaide",
+			"amount": 8.69,
+			"date": "2026-06-14",
+			"account": "NAB AUD",
+			"category": "Food & Dining",
+			"currency": "AUD"
+		}
+	]
+}

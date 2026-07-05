@@ -36,23 +36,40 @@ export default function AnalyticsPage() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
-  const [data, setData] = useState<AnalyticsData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // The fetch result is stored together with the request key it answers. Loading and
+  // error are DERIVED from whether the stored result matches the current key — no
+  // synchronous setState in the effect, and a late response from a previous month
+  // can never overwrite the current one (the cancelled flag drops it).
+  const [result, setResult] = useState<{
+    key: string
+    data: AnalyticsData | null
+    error: string | null
+  } | null>(null)
+
+  const requestKey = `${year}-${month}`
 
   useEffect(() => {
-    setLoading(true)
-    setError(null)
-    setData(null)
+    const key = `${year}-${month}`
+    let cancelled = false
     fetch(`/api/analytics?year=${year}&month=${month}`)
       .then((res) => res.json())
       .then((d: AnalyticsData | { error: string }) => {
-        if ('error' in d) setError(d.error)
-        else setData(d)
+        if (cancelled) return
+        if ('error' in d) setResult({ key, data: null, error: d.error })
+        else setResult({ key, data: d, error: null })
       })
-      .catch(() => setError('Failed to load analytics'))
-      .finally(() => setLoading(false))
+      .catch(() => {
+        if (!cancelled) setResult({ key, data: null, error: 'Failed to load analytics' })
+      })
+    return () => {
+      cancelled = true
+    }
   }, [year, month])
+
+  const current = result && result.key === requestKey ? result : null
+  const loading = current === null
+  const data = current?.data ?? null
+  const error = current?.error ?? null
 
   function prevMonth() {
     if (month === 1) {

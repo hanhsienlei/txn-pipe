@@ -1,0 +1,172 @@
+{
+  "generatedAt": "2026-07-02T06:22:45.527Z",
+  "model": "claude-sonnet-4-6",
+  "receipts": 10,
+  "errors": 0,
+  "fieldAccuracy": 0.9027777777777778,
+  "avgFieldsWrongPerReceipt": 0.7,
+  "avgCostUsd": 0.007517999999999999,
+  "latencyMs": {
+    "p50": 3175,
+    "p95": 7317
+  },
+  "perField": {
+    "type": {
+      "correct": 10,
+      "total": 10,
+      "accuracy": 1
+    },
+    "expense": {
+      "correct": 8,
+      "total": 8,
+      "accuracy": 1
+    },
+    "amount": {
+      "correct": 10,
+      "total": 10,
+      "accuracy": 1
+    },
+    "date": {
+      "correct": 4,
+      "total": 10,
+      "accuracy": 0.4
+    },
+    "account": {
+      "correct": 8,
+      "total": 8,
+      "accuracy": 1
+    },
+    "category": {
+      "correct": 7,
+      "total": 8,
+      "accuracy": 0.875
+    },
+    "currency": {
+      "correct": 10,
+      "total": 10,
+      "accuracy": 1
+    },
+    "income": {
+      "correct": 2,
+      "total": 2,
+      "accuracy": 1
+    },
+    "source": {
+      "correct": 2,
+      "total": 2,
+      "accuracy": 1
+    },
+    "accounts": {
+      "correct": 2,
+      "total": 2,
+      "accuracy": 1
+    },
+    "tax": {
+      "correct": 2,
+      "total": 2,
+      "accuracy": 1
+    }
+  },
+  "runs": [
+    {
+      "id": "001",
+      "accuracy": 1,
+      "wrongFields": 0,
+      "totalFields": 7,
+      "latencyMs": 3897,
+      "costUsd": 0.007508999999999999,
+      "inputTokens": 1983,
+      "outputTokens": 104
+    },
+    {
+      "id": "002",
+      "accuracy": 1,
+      "wrongFields": 0,
+      "totalFields": 8,
+      "latencyMs": 3576,
+      "costUsd": 0.007763999999999999,
+      "inputTokens": 1983,
+      "outputTokens": 121
+    },
+    {
+      "id": "003",
+      "accuracy": 0.8571428571428571,
+      "wrongFields": 1,
+      "totalFields": 7,
+      "latencyMs": 3093,
+      "costUsd": 0.007508999999999999,
+      "inputTokens": 1983,
+      "outputTokens": 104
+    },
+    {
+      "id": "004",
+      "accuracy": 0.8571428571428571,
+      "wrongFields": 1,
+      "totalFields": 7,
+      "latencyMs": 3886,
+      "costUsd": 0.007434,
+      "inputTokens": 1983,
+      "outputTokens": 99
+    },
+    {
+      "id": "005",
+      "accuracy": 1,
+      "wrongFields": 0,
+      "totalFields": 7,
+      "latencyMs": 3169,
+      "costUsd": 0.007434,
+      "inputTokens": 1983,
+      "outputTokens": 99
+    },
+    {
+      "id": "006",
+      "accuracy": 1,
+      "wrongFields": 0,
+      "totalFields": 7,
+      "latencyMs": 2911,
+      "costUsd": 0.007389,
+      "inputTokens": 1983,
+      "outputTokens": 96
+    },
+    {
+      "id": "007",
+      "accuracy": 0.8571428571428571,
+      "wrongFields": 1,
+      "totalFields": 7,
+      "latencyMs": 3179,
+      "costUsd": 0.007568999999999999,
+      "inputTokens": 1983,
+      "outputTokens": 108
+    },
+    {
+      "id": "009",
+      "accuracy": 0.7142857142857143,
+      "wrongFields": 2,
+      "totalFields": 7,
+      "latencyMs": 2974,
+      "costUsd": 0.007389,
+      "inputTokens": 1983,
+      "outputTokens": 96
+    },
+    {
+      "id": "010",
+      "accuracy": 0.8571428571428571,
+      "wrongFields": 1,
+      "totalFields": 7,
+      "latencyMs": 3175,
+      "costUsd": 0.007418999999999999,
+      "inputTokens": 1983,
+      "outputTokens": 98
+    },
+    {
+      "id": "011",
+      "accuracy": 0.875,
+      "wrongFields": 1,
+      "totalFields": 8,
+      "latencyMs": 7317,
+      "costUsd": 0.007763999999999999,
+      "inputTokens": 1983,
+      "outputTokens": 121
+    }
+  ]
+}

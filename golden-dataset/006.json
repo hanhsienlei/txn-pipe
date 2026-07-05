@@ -1,0 +1,14 @@
+{
+	"image": "golden-dataset/006.png",
+	"expected": [
+		{
+			"type": "expense",
+			"expense": "Claude API credit ",
+			"amount": 31.71,
+			"date": "2026-06-10",
+			"account": "NAB AUD",
+			"category": "Growth",
+			"currency": "AUD"
+		}
+	]
+}
