@@ -8,7 +8,14 @@
  *
  * Requires ANTHROPIC_API_KEY (loaded from .env if present).
  */
-import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import {
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+  appendFileSync,
+  mkdirSync,
+  existsSync,
+} from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { scoreReceipt, aggregate, type ReceiptScore } from '../lib/scoring'
 import type { Entry } from '../types/transaction'
@@ -190,6 +197,95 @@ async function main() {
     writeFileSync(abs, JSON.stringify(report, null, 2))
     console.log(`\nWrote report to ${outPath}`)
   }
+
+  // Regression gate: compare this run against a committed baseline and fail if field
+  // accuracy dropped by more than the tolerance. Used by the CI eval workflow.
+  const baselinePath = flagValue('--baseline')
+  if (baselinePath) {
+    gate(report, baselinePath)
+  }
+}
+
+type Report = {
+  model: string
+  receipts: number
+  errors: number
+  fieldAccuracy: number
+  avgFieldsWrongPerReceipt: number
+  avgCostUsd: number
+  latencyMs: { p50: number; p95: number }
+  perField: Record<string, { correct: number; total: number; accuracy: number }>
+}
+
+function flagValue(flag: string): string | undefined {
+  const idx = process.argv.indexOf(flag)
+  return idx !== -1 ? process.argv[idx + 1] : undefined
+}
+
+function pct(n: number): string {
+  return `${(n * 100).toFixed(1)}%`
+}
+
+function buildDiffMarkdown(baseline: Report, run: Report, tolerance: number, pass: boolean): string {
+  const delta = run.fieldAccuracy - baseline.fieldAccuracy
+  const sign = delta >= 0 ? '+' : ''
+  const header = pass ? '✅ Eval gate passed' : '❌ Eval gate failed'
+  const lines: string[] = []
+  lines.push(`### ${header}`)
+  lines.push('')
+  lines.push(
+    `Field accuracy **${pct(run.fieldAccuracy)}** vs baseline **${pct(baseline.fieldAccuracy)}** ` +
+      `(${sign}${(delta * 100).toFixed(1)} pts). Floor: ${pct(baseline.fieldAccuracy - tolerance)} ` +
+      `(baseline − ${(tolerance * 100).toFixed(0)} pt tolerance).`,
+  )
+  lines.push('')
+  lines.push('| Metric | Baseline | This run |')
+  lines.push('| --- | --- | --- |')
+  lines.push(`| Field accuracy | ${pct(baseline.fieldAccuracy)} | ${pct(run.fieldAccuracy)} |`)
+  lines.push(
+    `| Avg fields wrong/receipt | ${baseline.avgFieldsWrongPerReceipt.toFixed(2)} | ${run.avgFieldsWrongPerReceipt.toFixed(2)} |`,
+  )
+  lines.push(
+    `| Avg cost/receipt | $${baseline.avgCostUsd.toFixed(5)} | $${run.avgCostUsd.toFixed(5)} |`,
+  )
+  lines.push(
+    `| Latency p50 / p95 | ${baseline.latencyMs.p50} / ${baseline.latencyMs.p95} ms | ${run.latencyMs.p50} / ${run.latencyMs.p95} ms |`,
+  )
+  lines.push(`| Errors | ${baseline.errors} | ${run.errors} |`)
+  lines.push('')
+  lines.push('| Field | Baseline | This run | Δ |')
+  lines.push('| --- | --- | --- | --- |')
+  const fields = new Set([...Object.keys(baseline.perField), ...Object.keys(run.perField)])
+  for (const field of fields) {
+    const b = baseline.perField[field]?.accuracy ?? 0
+    const r = run.perField[field]?.accuracy ?? 0
+    const d = r - b
+    const mark = d < 0 ? ' ⚠️' : ''
+    lines.push(`| ${field} | ${pct(b)} | ${pct(r)} | ${d >= 0 ? '+' : ''}${(d * 100).toFixed(0)} pt${mark} |`)
+  }
+  return lines.join('\n') + '\n'
+}
+
+function gate(run: Report, baselinePath: string): void {
+  const tolerance = Number(flagValue('--tolerance') ?? '0.05')
+  const baseline = JSON.parse(readFileSync(resolve(ROOT, baselinePath), 'utf8')) as Report
+  const floor = baseline.fieldAccuracy - tolerance
+  const pass = run.errors === 0 && run.fieldAccuracy >= floor
+  const md = buildDiffMarkdown(baseline, run, tolerance, pass)
+
+  const summaryPath = flagValue('--summary')
+  if (summaryPath) writeFileSync(resolve(ROOT, summaryPath), md)
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md)
+  console.log('\n' + md)
+
+  if (!pass) {
+    console.error(
+      `Regression gate FAILED: field accuracy ${pct(run.fieldAccuracy)} < floor ${pct(floor)}` +
+        (run.errors ? ` (or ${run.errors} extraction error(s))` : ''),
+    )
+    process.exit(1)
+  }
+  console.log('Regression gate passed.')
 }
 
 main().catch((err) => {

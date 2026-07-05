@@ -1,0 +1,71 @@
+name: eval
+
+# Runs the golden-dataset eval on any PR that touches the prompt, schema, categories,
+# or the harness itself, and fails the build if field accuracy regresses below the
+# committed baseline (evals/baseline.json) beyond the tolerance. The accuracy diff is
+# posted back to the PR as a comment.
+on:
+  pull_request:
+    paths:
+      - 'lib/claude.ts'
+      - 'lib/schema.ts'
+      - 'lib/categories.ts'
+      - 'lib/scoring.ts'
+      - 'scripts/score.ts'
+      - 'golden-dataset/**'
+      - 'evals/baseline.json'
+      - '.github/workflows/eval.yml'
+
+concurrency:
+  group: eval-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check for API key
+        env:
+          EVAL_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$EVAL_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY secret is not set. Add it in repo Settings → Secrets → Actions."
+            exit 1
+          fi
+
+      - name: Run eval + regression gate
+        id: eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: npm run eval -- --baseline evals/baseline.json --tolerance 0.05 --summary eval-summary.md
+
+      - name: Comment accuracy diff on PR
+        if: always() && hashFiles('eval-summary.md') != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs')
+            const marker = '<!-- eval-gate -->'
+            const body = marker + '\n' + fs.readFileSync('eval-summary.md', 'utf8')
+            const { owner, repo } = context.repo
+            const issue_number = context.issue.number
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number })
+            const existing = comments.find((c) => c.body && c.body.includes(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body })
+            }
