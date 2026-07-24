@@ -130,20 +130,64 @@ export async function getExpenseAnalytics(year: number, month: number): Promise<
   return { breakdown, trend }
 }
 
-export async function appendEntry(entry: Entry): Promise<void> {
+export type TabName = 'income' | 'expense'
+
+export interface AppendOutcome {
+  tab: TabName
+  count: number
+  ok: boolean
+  error?: string
+}
+
+/**
+ * Appends a whole batch with one `values.append` per destination tab.
+ *
+ * Writing entries one request at a time meant a failure halfway through a batch left the
+ * earlier rows already in the sheet with nothing recording that — so retrying duplicated
+ * them. Collapsing to at most two calls shrinks the partial-failure window to "one tab
+ * wrote, the other didn't", and the per-tab outcomes let the caller re-send only what
+ * actually failed.
+ */
+export async function appendEntries(entries: Entry[]): Promise<AppendOutcome[]> {
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID
   if (!spreadsheetId) throw new Error('GOOGLE_SPREADSHEET_ID is not set')
 
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
 
-  const range = entry.type === 'income' ? `${incomeTab()}!A:G` : `${expenseTab()}!A:F`
-  const row = entry.type === 'income' ? toIncomeRow(entry) : toExpenseRow(entry)
+  const groups = [
+    {
+      tab: 'expense' as const,
+      range: `${expenseTab()}!A:F`,
+      rows: entries.filter((e) => e.type === 'expense').map(toExpenseRow),
+    },
+    {
+      tab: 'income' as const,
+      range: `${incomeTab()}!A:G`,
+      rows: entries.filter((e) => e.type === 'income').map(toIncomeRow),
+    },
+  ].filter((group) => group.rows.length > 0)
 
-  await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [row] },
-  })
+  const outcomes: AppendOutcome[] = []
+  for (const group of groups) {
+    try {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: group.range,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: group.rows },
+      })
+      outcomes.push({ tab: group.tab, count: group.rows.length, ok: true })
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Failed to write to Sheets'
+      outcomes.push({ tab: group.tab, count: group.rows.length, ok: false, error })
+    }
+  }
+
+  return outcomes
+}
+
+export async function appendEntry(entry: Entry): Promise<void> {
+  const [outcome] = await appendEntries([entry])
+  if (outcome && !outcome.ok) throw new Error(outcome.error)
 }

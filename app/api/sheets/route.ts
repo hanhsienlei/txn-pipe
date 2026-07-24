@@ -1,22 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { appendEntry } from '@/lib/sheets'
+import { appendEntries } from '@/lib/sheets'
 import type { Entry } from '@/types/transaction'
 
 export async function POST(req: NextRequest) {
-  let entry: Entry
+  let body: { entries?: Entry[] }
   try {
-    entry = (await req.json()) as Entry
+    body = (await req.json()) as { entries?: Entry[] }
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  if (!entry.type || !['income', 'expense'].includes(entry.type)) {
+  const entries = body.entries
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return NextResponse.json({ error: 'Missing entries' }, { status: 400 })
+  }
+  if (entries.some((entry) => !['income', 'expense'].includes(entry?.type))) {
     return NextResponse.json({ error: 'Invalid entry type' }, { status: 400 })
   }
 
   try {
-    await appendEntry(entry)
-    return NextResponse.json({ success: true })
+    const outcomes = await appendEntries(entries)
+    const success = outcomes.every((outcome) => outcome.ok)
+    // 502 on a partial write: the client re-sends only the tabs that failed.
+    return NextResponse.json({ success, outcomes }, { status: success ? 200 : 502 })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to write to Sheets'
     return NextResponse.json({ error: message }, { status: 500 })

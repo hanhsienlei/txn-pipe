@@ -3,6 +3,22 @@
 ## Golden Dataset
 A fixed set of 10–15 hand-verified receipts with expected extraction outputs (`amount`, `date`, `category`/`source` scored exactly; `expense`/`income` description scored on format only). Assembled once by the builder, never modified by user interactions. Serves as the immutable eval anchor for detecting regression.
 
+## Batch
+A set of images selected together in one go and processed as a single unit through extraction, review, and saving. A batch of one is still a batch — there is no separate single-image concept.
+_Avoid_: Upload, job, bulk import
+
+## Draft
+The AI's proposed entry for an image, before a human has approved it. A draft is never written to the spreadsheet.
+_Avoid_: Suggestion, prediction, candidate (see Candidate Pool, which means something else)
+
+## Review Queue
+The ordered list of items a batch produces, each awaiting one human decision. An item is a Draft, an image that could not be extracted, or an image that yielded no transactions. Every image in a batch reaches the queue and every queue item reaches a decision — nothing is dropped without the human seeing it.
+_Avoid_: Results, list, inbox
+
+## Processed Image
+An image whose entries have been written to the spreadsheet. Re-selecting one in a later batch is a duplicate. An image that was skipped or failed extraction is *not* processed, so it remains eligible for a future batch.
+_Avoid_: Seen, uploaded, done
+
 ## Correction
 A user edit to an AI draft extraction. Signals that the model got something wrong. Stored as a `(input, AI draft, human-corrected)` triple and used to update prompt context.
 
