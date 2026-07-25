@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { extractFromImage } from '@/lib/claude'
 
+// Extraction runs p95 ~7.3s per image and the platform default is tighter than that
+// leaves room for; a batch fans out four of these at once, so give the tail somewhere to go.
+export const maxDuration = 30
+
 export async function POST(req: NextRequest) {
   let body: { image?: string; mimeType?: string }
   try {

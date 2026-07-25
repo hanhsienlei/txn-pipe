@@ -1,69 +1,26 @@
 'use client'
 
-import { useState } from 'react'
 import { dbg } from '@/components/DebugLog'
 
 interface Props {
-  onCapture: (base64: string, mimeType: string) => void
-  loading?: boolean
+  onFiles: (files: File[]) => void
+  busy?: boolean
   onError?: (msg: string) => void
 }
 
-function readAsBase64(file: File): Promise<{ base64: string; mimeType: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    const timeout = setTimeout(() => reject(new Error('FileReader timeout after 15s')), 15000)
-    reader.onload = (e) => {
-      clearTimeout(timeout)
-      const dataUrl = e.target?.result as string
-      const comma = dataUrl.indexOf(',')
-      const header = dataUrl.slice(0, comma)
-      const base64 = dataUrl.slice(comma + 1)
-      const mimeType = header.replace('data:', '').replace(';base64', '')
-      resolve({ base64, mimeType })
-    }
-    reader.onerror = () => {
-      clearTimeout(timeout)
-      reject(new Error('FileReader error: ' + String(reader.error)))
-    }
-    reader.readAsDataURL(file)
-  })
-}
-
-type Step = 'idle' | 'reading'
-
-export default function PhotoCapture({ onCapture, loading = false, onError }: Props) {
-  const [preview, setPreview] = useState<string | null>(null)
-  const [step, setStep] = useState<Step>('idle')
-  // `busy` covers the whole flow with no gap: `step` is 'reading' while the file is
-  // read, and the parent sets `loading` synchronously inside onCapture — React
-  // batches that with our setStep('idle'), so `busy` never flickers false between.
-  const busy = loading || step !== 'idle'
-
-  function handleCancel() {
-    setPreview(null)
-    setStep('idle')
-    onError?.('')
-  }
-
-  async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+/**
+ * Picks the images for a batch. Gallery allows multi-select — that's the weekly
+ * camera-roll cleanup. Camera stays single-shot because you can't take several photos in
+ * one go anyway.
+ */
+export default function PhotoCapture({ onFiles, busy = false, onError }: Props) {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    if (!file) return
-    dbg('file:', file.name, Math.round(file.size / 1024) + 'KB', file.type)
-    try {
-      setStep('reading')
-      setPreview(URL.createObjectURL(file))
-      const { base64, mimeType } = await readAsBase64(file)
-      dbg('read ok, mime:', mimeType)
-      onCapture(base64, mimeType)
-      setStep('idle')
-    } catch (err) {
-      setStep('idle')
-      const msg = err instanceof Error ? err.message : 'Could not read image'
-      dbg('ERR:', msg)
-      onError?.(msg)
-    }
+    if (!files.length) return
+    dbg('files:', files.length, files.map((f) => `${f.name} ${Math.round(f.size / 1024)}KB`).join(', '))
+    onError?.('')
+    onFiles(files)
   }
 
   const btnBase: React.CSSProperties = {
@@ -78,48 +35,40 @@ export default function PhotoCapture({ onCapture, loading = false, onError }: Pr
 
   const overlayInput: React.CSSProperties = {
     position: 'absolute',
-    top: 0, left: 0, width: '100%', height: '100%',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
     opacity: 0,
     cursor: busy ? 'default' : 'pointer',
   }
 
   return (
-    <div className="flex flex-col items-center gap-4 w-full">
-      {preview && (
-        <div className="relative w-full max-w-sm">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={preview} alt="Selected"
-            className="w-full rounded-xl object-contain max-h-72 border border-neutral-700" />
-          {!busy && (
-            <button
-              onClick={handleCancel}
-              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white text-sm flex items-center justify-center"
-              aria-label="Clear"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className="flex gap-3 w-full max-w-sm">
-        <div style={{ position: 'relative', flex: 1 }}>
-          <div style={{ ...btnBase, background: '#ffffff', color: '#000000' }}>Camera</div>
-          <input type="file" accept="image/*" capture="environment"
-            disabled={busy} onChange={handleChange} style={overlayInput} />
-        </div>
-        <div style={{ position: 'relative', flex: 1 }}>
-          <div style={{ ...btnBase, background: '#27272a', color: '#ffffff' }}>Gallery</div>
-          <input type="file" accept="image/*"
-            disabled={busy} onChange={handleChange} style={overlayInput} />
-        </div>
+    <div className="flex gap-3 w-full max-w-sm">
+      <div style={{ position: 'relative', flex: 1 }}>
+        <div style={{ ...btnBase, background: '#ffffff', color: '#000000' }}>Camera</div>
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          disabled={busy}
+          onChange={handleChange}
+          style={overlayInput}
+          aria-label="Take a photo"
+        />
       </div>
-
-      {busy && (
-        <p className="text-sm text-neutral-400 animate-pulse">
-          {step === 'reading' ? 'Reading…' : 'Extracting data…'}
-        </p>
-      )}
+      <div style={{ position: 'relative', flex: 1 }}>
+        <div style={{ ...btnBase, background: '#27272a', color: '#ffffff' }}>Gallery</div>
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          disabled={busy}
+          onChange={handleChange}
+          style={overlayInput}
+          aria-label="Choose from gallery"
+        />
+      </div>
     </div>
   )
 }

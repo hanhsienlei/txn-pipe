@@ -18,6 +18,8 @@ interface Props {
   submitting?: boolean
   submitLabel?: string
   retakeLabel?: string
+  /** Inline inside a review card, where the card owns the buttons and edits flow through onChange. */
+  hideActions?: boolean
 }
 
 function Field({
@@ -38,7 +40,7 @@ function Field({
 const inputClass =
   'w-full border border-neutral-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-black'
 
-export default function EntryForm({ initial, onSubmit, onRetake, onChange, submitting = false, submitLabel, retakeLabel }: Props) {
+export default function EntryForm({ initial, onSubmit, onRetake, onChange, submitting = false, submitLabel, retakeLabel, hideActions = false }: Props) {
   const [entry, setEntry] = useState<Entry>(initial)
 
   function setField<K extends keyof IncomeEntry>(key: K, value: IncomeEntry[K]): void
@@ -225,7 +227,7 @@ export default function EntryForm({ initial, onSubmit, onRetake, onChange, submi
       )}
 
       {/* Actions */}
-      <div className="flex gap-3 pt-2">
+      <div className={`flex gap-3 pt-2 ${hideActions ? 'hidden' : ''}`}>
         <button
           type="button"
           onClick={onRetake}
