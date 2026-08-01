@@ -1,26 +1,216 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
+/*
+ * Broadsheet design system. Two accents only: cyan is the interactive colour,
+ * magenta is the exception colour ("I wasn't sure" / "already logged"). Never both in
+ * the same component. Everything else is #201e1d at one of the ink opacities below.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  --bg: #f3f2f2;
+  --surface: #eae9e9;
+  --text: #201e1d;
+  --accent: #0088b0;
+  --accent-600: #006c8d;
+  --accent-2: #d6006c;
+  --accent-2-700: #a8005a;
+
+  /* #201e1d at the opacities the system uses, named by percentage. */
+  --ink-75: rgba(32, 30, 29, 0.75); /* body prose */
+  --ink-70: rgba(32, 30, 29, 0.7); /* secondary */
+  --ink-65: rgba(32, 30, 29, 0.65); /* tertiary action */
+  --ink-60: rgba(32, 30, 29, 0.6); /* inactive nav */
+  --ink-55: rgba(32, 30, 29, 0.55); /* eyebrow labels, metadata */
+  --ink-50: rgba(32, 30, 29, 0.5);
+  --ink-45: rgba(32, 30, 29, 0.45);
+  --ink-35: rgba(32, 30, 29, 0.35); /* inert nav */
+  --ink-30: rgba(32, 30, 29, 0.3); /* field underline */
+  --ink-25: rgba(32, 30, 29, 0.25); /* inactive bar */
+  --ink-20: rgba(32, 30, 29, 0.2); /* field underline, secondary */
+  --ink-18: rgba(32, 30, 29, 0.18); /* step rail empty */
+  --ink-16: rgba(32, 30, 29, 0.16); /* disabled border */
+  --ink-14: rgba(32, 30, 29, 0.14); /* progress track */
+  --ink-12: rgba(32, 30, 29, 0.12); /* list row rule */
+  --ink-10: rgba(32, 30, 29, 0.1); /* bar chart track */
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-accent: var(--accent);
+  --color-accent-600: var(--accent-600);
+  --color-accent-2: var(--accent-2);
+  --color-accent-2-700: var(--accent-2-700);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-ink-75: var(--ink-75);
+  --color-ink-70: var(--ink-70);
+  --color-ink-65: var(--ink-65);
+  --color-ink-60: var(--ink-60);
+  --color-ink-55: var(--ink-55);
+  --color-ink-50: var(--ink-50);
+  --color-ink-45: var(--ink-45);
+  --color-ink-35: var(--ink-35);
+  --color-ink-30: var(--ink-30);
+  --color-ink-25: var(--ink-25);
+  --color-ink-20: var(--ink-20);
+  --color-ink-18: var(--ink-18);
+  --color-ink-16: var(--ink-16);
+  --color-ink-14: var(--ink-14);
+  --color-ink-12: var(--ink-12);
+  --color-ink-10: var(--ink-10);
+
+  --font-serif: var(--font-source-serif), Georgia, 'Times New Roman', serif;
+  --radius-sharp: 2px;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Never the browser default. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Component classes live in the components layer so per-use utilities still win — an
+ * unlayered rule beats every Tailwind utility, which would silently swallow the
+ * `text-[42px]` on the amount field and the `font-normal` on a ghost button.
+ */
+@layer components {
+/*
+ * The eyebrow is the workhorse of this system — it names every field and every screen
+ * state, so it lives in exactly one place.
+ */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-55);
+  line-height: 1.2;
+}
+
+/* Radius is 2px everywhere; the only round things are selection ticks and the grab handle. */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  border-radius: 2px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.btn-primary {
+  min-height: 56px;
+  font-size: 17px;
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--accent-600);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+}
+
+.btn-outline {
+  min-height: 48px;
+  font-size: 16px;
+  border: 1px solid var(--ink-30);
+  color: var(--text);
+}
+
+.btn-outline:disabled {
+  border-color: var(--ink-16);
+  opacity: 0.5;
+}
+
+.btn-ghost {
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ink-70);
+}
+
+/* A field is a bottom border, never a box. */
+.field-input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+}
+
+.field-input:focus {
+  outline: none;
+}
+
+.field-input::placeholder {
+  color: var(--ink-45);
+}
+
+/* Sheet: the one shadow in the system. */
+.sheet {
+  box-shadow: 0 -12px 32px rgba(45, 43, 43, 0.22);
+  animation: sheet-up 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.scrim {
+  animation: fade-in 240ms ease-out;
+}
+
+/* Wizard steps: forward slides left, back slides right. */
+.step-forward {
+  animation: step-from-right 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.step-back {
+  animation: step-from-left 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes step-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes step-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .step-forward,
+  .step-back {
+    animation: fade-in 150ms ease-out;
+  }
 }

@@ -137,6 +137,73 @@ export interface AppendOutcome {
   count: number
   ok: boolean
   error?: string
+  /** First and last sheet row written, from the append response. Absent if it didn't report one. */
+  rowStart?: number
+  rowEnd?: number
+}
+
+export interface TabInfo {
+  /** The tab's title in the spreadsheet, e.g. `Expense`. */
+  name: string
+  /** Sheet id, for deep-linking straight to the tab. */
+  gid: number
+}
+
+export interface SheetInfo {
+  spreadsheetId: string
+  /** The spreadsheet's own name, e.g. `Household 2026`. Stated on every screen. */
+  title: string
+  tabs: Partial<Record<TabName, TabInfo>>
+}
+
+/**
+ * The spreadsheet's name and tab ids, so the UI can say where it is writing and link
+ * into the exact rows it wrote.
+ */
+export async function getSheetInfo(): Promise<SheetInfo> {
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID
+  if (!spreadsheetId) throw new Error('GOOGLE_SPREADSHEET_ID is not set')
+
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'properties.title,sheets.properties(title,sheetId)',
+  })
+
+  const byTitle = new Map<string, number>()
+  for (const sheet of res.data.sheets ?? []) {
+    const title = sheet.properties?.title
+    const sheetId = sheet.properties?.sheetId
+    if (title && typeof sheetId === 'number') byTitle.set(title, sheetId)
+  }
+
+  const tabs: SheetInfo['tabs'] = {}
+  for (const [tab, name] of [
+    ['expense', expenseTab()],
+    ['income', incomeTab()],
+  ] as const) {
+    const gid = byTitle.get(name)
+    if (gid !== undefined) tabs[tab] = { name, gid }
+  }
+
+  return { spreadsheetId, title: res.data.properties?.title ?? 'your sheet', tabs }
+}
+
+/**
+ * `'Expense'!A214:F218` → rows 214–218. The API reports what it actually appended, which
+ * is the only trustworthy source for "rows 214–218" on the saved screen — computing it
+ * from a row count would drift the moment anything else writes to the sheet.
+ */
+export function parseUpdatedRange(range: string | null | undefined): {
+  rowStart?: number
+  rowEnd?: number
+} {
+  if (!range) return {}
+  const cells = range.includes('!') ? range.slice(range.lastIndexOf('!') + 1) : range
+  const rows = [...cells.matchAll(/[A-Z]+(\d+)/g)].map((match) => Number(match[1]))
+  if (!rows.length) return {}
+  return { rowStart: Math.min(...rows), rowEnd: Math.max(...rows) }
 }
 
 /**
@@ -171,13 +238,18 @@ export async function appendEntries(entries: Entry[]): Promise<AppendOutcome[]> 
   const outcomes: AppendOutcome[] = []
   for (const group of groups) {
     try {
-      await sheets.spreadsheets.values.append({
+      const res = await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: group.range,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: group.rows },
       })
-      outcomes.push({ tab: group.tab, count: group.rows.length, ok: true })
+      outcomes.push({
+        tab: group.tab,
+        count: group.rows.length,
+        ok: true,
+        ...parseUpdatedRange(res?.data?.updates?.updatedRange),
+      })
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Failed to write to Sheets'
       outcomes.push({ tab: group.tab, count: group.rows.length, ok: false, error })

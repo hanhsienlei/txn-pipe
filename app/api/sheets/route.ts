@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { appendEntries } from '@/lib/sheets'
+import { appendEntries, getSheetInfo } from '@/lib/sheets'
 import type { Entry } from '@/types/transaction'
+
+/** Where this app writes: the spreadsheet's name and tab ids, stated on every screen. */
+export async function GET() {
+  try {
+    return NextResponse.json(await getSheetInfo())
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to read sheet info'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
 
 export async function POST(req: NextRequest) {
   let body: { entries?: Entry[] }

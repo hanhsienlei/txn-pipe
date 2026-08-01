@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "vitest.config.ts",
     "vitest.setup.ts",
+    // Design reference bundle, not source — the prototype is explicitly not to be ported.
+    "design_handoff_txnpipe_flow/**",
   ]),
 ]);
 

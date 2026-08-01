@@ -1,38 +1,30 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts'
+import AppHeader from '@/components/AppHeader'
+import { useSheetInfo } from '@/lib/sheet-info'
+import { formatAmount, formatWhole } from '@/lib/format'
 import type { AnalyticsData } from '@/lib/sheets'
 
-const CATEGORY_COLORS: Record<string, string> = {
-  Rent: '#6366f1',
-  'Food & Dining': '#f59e0b',
-  Health: '#10b981',
-  Living: '#3b82f6',
-  Growth: '#8b5cf6',
-  Shopping: '#f43f5e',
-  Entertainment: '#06b6d4',
-  Other: '#94a3b8',
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+function monthTotal(item: AnalyticsData['trend'][number]): number {
+  return Object.entries(item)
+    .filter(([key]) => key !== 'month')
+    .reduce((sum, [, value]) => sum + Number(value), 0)
 }
 
-function colorFor(category: string): string {
-  return CATEGORY_COLORS[category] ?? '#94a3b8'
+/** `2026-07` → `JUL`, for the six-month rail. */
+function shortMonth(key: string): string {
+  const month = Number(key.split('-')[1])
+  return (MONTH_NAMES[month - 1] ?? '').slice(0, 3).toUpperCase()
 }
 
 export default function AnalyticsPage() {
+  const info = useSheetInfo()
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -71,6 +63,8 @@ export default function AnalyticsPage() {
   const data = current?.data ?? null
   const error = current?.error ?? null
 
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1
+
   function prevMonth() {
     if (month === 1) {
       setMonth(12)
@@ -81,7 +75,6 @@ export default function AnalyticsPage() {
   }
 
   function nextMonth() {
-    const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1
     if (isCurrentMonth) return
     if (month === 12) {
       setMonth(1)
@@ -91,215 +84,179 @@ export default function AnalyticsPage() {
     }
   }
 
-  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1
-  const selectedLabel = `${year}/${String(month).padStart(2, '0')}`
+  const breakdown = [...(data?.breakdown ?? [])].sort((a, b) => b.total - a.total)
+  const spent = breakdown.reduce((sum, item) => sum + item.total, 0)
+  const maxCategory = breakdown[0]?.total ?? 0
 
-  const activeCategories = data
-    ? [
-        ...new Set([
-          ...data.breakdown.map((d) => d.category),
-          ...data.trend.flatMap((t) => Object.keys(t).filter((k) => k !== 'month')),
-        ]),
-      ]
-    : []
+  const trend = data?.trend ?? []
+  const trendTotals = trend.map(monthTotal)
+  const maxTrend = Math.max(...trendTotals, 1)
 
-  const total = data?.breakdown.reduce((sum, d) => sum + d.total, 0) ?? 0
+  // "vs avg" compares against the preceding months only — including the month you are
+  // looking at would flatten the very difference the figure is meant to show.
+  const priorTotals = trendTotals.slice(0, -1).filter((total) => total > 0)
+  const priorAvg = priorTotals.length
+    ? priorTotals.reduce((sum, total) => sum + total, 0) / priorTotals.length
+    : 0
+  const vsAvg = priorAvg > 0 ? Math.round(((spent - priorAvg) / priorAvg) * 100) : null
 
-  const budgetData = (() => {
+  const budget = (() => {
     if (!data) return []
     const avgMap = new Map<string, number>()
-    for (const item of data.trend.slice(-3)) {
-      for (const [k, v] of Object.entries(item)) {
-        if (k === 'month') continue
-        avgMap.set(k, (avgMap.get(k) ?? 0) + Number(v))
+    for (const item of data.trend.slice(-4, -1)) {
+      for (const [key, value] of Object.entries(item)) {
+        if (key === 'month') continue
+        avgMap.set(key, (avgMap.get(key) ?? 0) + Number(value))
       }
     }
     return [...avgMap.entries()]
       .map(([category, sum]) => {
         const avg = Math.round((sum / 3) * 100) / 100
-        const spent = data.breakdown.find((b) => b.category === category)?.total ?? 0
-        const remaining = Math.round((avg - spent) * 100) / 100
-        return { category, avg, spent, remaining, pct: Math.min(1, spent / avg), over: remaining < 0 }
+        const used = breakdown.find((item) => item.category === category)?.total ?? 0
+        const remaining = Math.round((avg - used) * 100) / 100
+        return { category, avg, used, remaining, pct: Math.min(1, used / avg), over: remaining < 0 }
       })
-      .filter((b) => b.avg > 0)
+      .filter((item) => item.avg > 0)
       .sort((a, b) => b.pct - a.pct)
   })()
 
   return (
     <main className="flex flex-col min-h-dvh">
-      <header className="flex items-center justify-between px-5 pt-12 pb-4">
-        <h1 className="text-xl font-bold tracking-tight">Analytics</h1>
-        <Link href="/" className="text-sm text-neutral-500 underline-offset-2 hover:underline">
-          ← Home
-        </Link>
-      </header>
+      <AppHeader state="Analytics" destination={info?.title} active="analytics">
+        <div className="flex items-center justify-between pt-2.5">
+          <button
+            type="button"
+            onClick={prevMonth}
+            aria-label="Previous month"
+            className="text-xl text-ink-50 px-2 -ml-2"
+          >
+            ‹
+          </button>
+          <span className="text-[13px] font-semibold uppercase tracking-[0.1em]">
+            {MONTH_NAMES[month - 1]} {year}
+          </span>
+          <button
+            type="button"
+            onClick={nextMonth}
+            disabled={isCurrentMonth}
+            aria-label="Next month"
+            className="text-xl text-ink-50 px-2 -mr-2 disabled:text-ink-25"
+          >
+            ›
+          </button>
+        </div>
+      </AppHeader>
 
-      <div className="flex items-center justify-center gap-6 px-5 pb-6">
-        <button onClick={prevMonth} className="text-neutral-400 hover:text-neutral-900 text-2xl leading-none px-1">
-          ‹
-        </button>
-        <span className="text-sm font-semibold tabular-nums w-20 text-center">{selectedLabel}</span>
-        <button
-          onClick={nextMonth}
-          disabled={isCurrentMonth}
-          className="text-neutral-400 hover:text-neutral-900 text-2xl leading-none px-1 disabled:opacity-20"
-        >
-          ›
-        </button>
-      </div>
-
-      <div className="flex-1 px-5 pb-10">
-        {loading && <p className="text-center text-neutral-400 text-sm mt-16">Loading…</p>}
-        {error && <p className="text-center text-red-500 text-sm mt-16">{error}</p>}
+      <div className="flex-1 px-5 pt-[22px] pb-10 flex flex-col gap-[26px]">
+        {loading && <p className="eyebrow mt-16 text-center">Loading</p>}
+        {error && <p className="text-[15px] text-accent-2 mt-16 text-center">{error}</p>}
 
         {data && !loading && (
-          <div className="flex flex-col gap-10">
-            <section>
-              <div className="flex items-baseline justify-between mb-3">
-                <h2 className="text-sm font-semibold text-neutral-500">Category Breakdown</h2>
-                {total > 0 && (
-                  <span className="text-sm font-semibold tabular-nums">${total.toFixed(2)}</span>
-                )}
+          <>
+            <div className="flex items-end justify-between gap-3 border-b border-ink-30 pb-2">
+              <div className="flex flex-col gap-0.5">
+                <span className="eyebrow">Spent this month</span>
+                <span className="text-[38px] font-semibold leading-none tabular-nums">
+                  {formatAmount(spent)}
+                </span>
               </div>
+              {vsAvg !== null && (
+                <span className="text-[15px] text-ink-60 shrink-0">
+                  {vsAvg > 0 ? '+' : vsAvg < 0 ? '−' : ''}
+                  {Math.abs(vsAvg)}% vs avg
+                </span>
+              )}
+            </div>
 
-              {data.breakdown.length === 0 ? (
-                <p className="text-center text-neutral-400 text-sm py-10">No expenses this month.</p>
+            <section className="flex flex-col gap-3.5">
+              <span className="eyebrow">By category</span>
+              {breakdown.length === 0 ? (
+                <p className="text-[15px] text-ink-70">No expenses this month.</p>
               ) : (
-                <>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <PieChart>
-                      <Pie
-                        data={data.breakdown}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={55}
-                        outerRadius={85}
-                        dataKey="total"
-                        nameKey="category"
-                        strokeWidth={0}
-                      >
-                        {data.breakdown.map((item) => (
-                          <Cell key={item.category} fill={colorFor(item.category)} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value, name) => [`$${Number(value).toFixed(2)}`, String(name)]}
-                        contentStyle={{ fontSize: 12 }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-
-                  <ul className="flex flex-col gap-2 mt-1">
-                    {[...data.breakdown].sort((a, b) => b.total - a.total).map((item) => (
-                      <li key={item.category} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            style={{ background: colorFor(item.category) }}
-                          />
-                          <span className="text-sm text-neutral-700">{item.category}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-neutral-400">
-                            {total > 0 ? `${Math.round((item.total / total) * 100)}%` : ''}
-                          </span>
-                          <span className="text-sm font-semibold tabular-nums">${item.total.toFixed(2)}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </>
+                <div className="flex flex-col gap-3">
+                  {breakdown.map((item) => (
+                    <div key={item.category} className="flex flex-col gap-[5px]">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-[17px] truncate">{item.category}</span>
+                        <span className="text-[17px] tabular-nums shrink-0">
+                          {formatAmount(item.total)}
+                        </span>
+                      </div>
+                      <div className="h-2 bg-ink-10">
+                        <div
+                          className="h-full bg-accent"
+                          style={{ width: `${maxCategory ? (item.total / maxCategory) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </section>
 
-            {budgetData.length > 0 && (
-              <section>
-                <div className="flex items-baseline justify-between mb-4">
-                  <h2 className="text-sm font-semibold text-neutral-500">Remaining Budget</h2>
-                  <span className="text-xs text-neutral-400">avg of last 3 months</span>
+            {budget.length > 0 && (
+              <section className="flex flex-col gap-3.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="eyebrow">Remaining budget</span>
+                  <span className="text-[13px] text-ink-55">avg last 3 mo</span>
                 </div>
-                <ul className="flex flex-col gap-4">
-                  {budgetData.map(({ category, avg, spent, remaining, pct, over }) => (
-                    <li key={category}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            style={{ background: colorFor(category) }}
-                          />
-                          <span className="text-sm text-neutral-700">{category}</span>
-                        </div>
-                        <span className={`text-sm font-semibold tabular-nums ${over ? 'text-red-500' : 'text-neutral-700'}`}>
-                          {over ? `−$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}
+                <div className="flex flex-col gap-3">
+                  {budget.map((item) => (
+                    <div key={item.category} className="flex flex-col gap-[5px]">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-[17px] truncate">{item.category}</span>
+                        <span
+                          className={`text-[17px] tabular-nums shrink-0 ${
+                            item.over ? 'text-accent-2-700' : 'text-ink-70'
+                          }`}
+                        >
+                          {item.over
+                            ? `−${formatAmount(item.remaining)} over`
+                            : `${formatAmount(item.remaining)} left`}
                         </span>
                       </div>
-                      <div className="h-2 w-full rounded-full bg-neutral-100 overflow-hidden">
+                      <div className="h-2 bg-ink-10">
                         <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${pct * 100}%`,
-                            background: over ? '#ef4444' : colorFor(category),
-                          }}
+                          className={`h-full ${item.over ? 'bg-accent-2' : 'bg-accent'}`}
+                          style={{ width: `${item.pct * 100}%` }}
                         />
                       </div>
-                      <p className="text-xs text-neutral-400 mt-1 tabular-nums">
-                        ${spent.toFixed(2)} spent · ${avg.toFixed(2)} avg/mo
-                      </p>
-                    </li>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </section>
             )}
 
-            <section>
-              <h2 className="text-sm font-semibold text-neutral-500 mb-3">6-Month Trend</h2>
-              <ResponsiveContainer width="100%" height={220}>
-                <ComposedChart
-                  data={data.trend.map((item, i, arr) => {
-                    const window = arr.slice(Math.max(0, i - 2), i + 1)
-                    const totals = window.map((t) =>
-                      Object.entries(t)
-                        .filter(([k]) => k !== 'month')
-                        .reduce((sum, [, v]) => sum + Number(v), 0)
-                    )
-                    const movingAvg = Math.round((totals.reduce((a, b) => a + b, 0) / totals.length) * 100) / 100
-                    return { ...item, movingAvg }
-                  })}
-                  margin={{ top: 0, right: 0, bottom: 0, left: -20 }}
-                >
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(v: string) => v.slice(5)}
+            <section className="flex flex-col gap-2.5">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="eyebrow">Six months</span>
+                {priorAvg > 0 && (
+                  <span className="text-[13px] text-ink-55 tabular-nums">
+                    avg {formatWhole(priorAvg)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-end gap-2.5 h-[90px]">
+                {trend.map((item, index) => (
+                  <div
+                    key={item.month}
+                    className={`flex-1 ${
+                      index === trend.length - 1 ? 'bg-accent' : 'bg-ink-25'
+                    }`}
+                    style={{ height: `${Math.max(2, (trendTotals[index] / maxTrend) * 100)}%` }}
+                    title={`${item.month}: ${formatAmount(trendTotals[index])}`}
                   />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip
-                    formatter={(value, name) =>
-                      name === 'movingAvg'
-                        ? [`$${Number(value).toFixed(2)}`, 'Avg']
-                        : [`$${Number(value).toFixed(2)}`, name]
-                    }
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Legend
-                    wrapperStyle={{ fontSize: 11 }}
-                    formatter={(value) => (value === 'movingAvg' ? 'Avg' : value)}
-                  />
-                  {activeCategories.map((cat) => (
-                    <Bar key={cat} dataKey={cat} stackId="a" fill={colorFor(cat)} />
-                  ))}
-                  <Line
-                    dataKey="movingAvg"
-                    stroke="#374151"
-                    strokeWidth={2}
-                    strokeDasharray="4 3"
-                    dot={false}
-                    type="monotone"
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
+                ))}
+              </div>
+              <div className="flex gap-2.5 text-xs text-ink-50 tracking-[0.04em]">
+                {trend.map((item) => (
+                  <span key={item.month} className="flex-1 text-center">
+                    {shortMonth(item.month)}
+                  </span>
+                ))}
+              </div>
             </section>
-          </div>
+          </>
         )}
       </div>
     </main>

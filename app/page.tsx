@@ -1,12 +1,17 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
-import Link from 'next/link'
+import { useEffect, useState, startTransition } from 'react'
+import AppHeader from '@/components/AppHeader'
 import PhotoCapture from '@/components/PhotoCapture'
+import PhotoSheet from '@/components/PhotoSheet'
+import ExtractionProgress, { type TileState } from '@/components/ExtractionProgress'
 import { dbg } from '@/components/DebugLog'
 import { prepareImage, blobToBase64, type PreparedImage } from '@/lib/image'
 import { runBatch, toQueueItems } from '@/lib/extract-batch'
+import { useSheetInfo } from '@/lib/sheet-info'
+import { readHistory, describeEntry } from '@/lib/history'
+import { formatAmount, formatDayMonth } from '@/lib/format'
 import {
   ACTIVE_BATCH_KEY,
   findProcessed,
@@ -16,35 +21,41 @@ import {
   pruneStaleBatches,
 } from '@/lib/batch-store'
 import type { BatchImage } from '@/types/batch'
+import type { Entry } from '@/types/transaction'
 
 interface Candidate {
   key: string
   name: string
   prepared: PreparedImage
   previewUrl: string
-  /** When this exact image was last written to the sheet, if it has been. */
   duplicateAt?: number
   selected: boolean
 }
 
 type Stage = 'idle' | 'preparing' | 'selecting' | 'extracting'
 
-function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-}
-
 export default function HomePage() {
   const router = useRouter()
+  const info = useSheetInfo()
   const [stage, setStage] = useState<Stage>('idle')
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [progress, setProgress] = useState({ done: 0, total: 0 })
+  const [tileStates, setTileStates] = useState<Record<string, TileState>>({})
+  const [startedAt, setStartedAt] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [lastLogged, setLastLogged] = useState<Entry | null>(null)
+
+  useEffect(() => {
+    const latest = readHistory()[0] ?? null
+    startTransition(() => setLastLogged(latest))
+  }, [])
 
   function reset(list: Candidate[]) {
     for (const c of list) URL.revokeObjectURL(c.previewUrl)
     setCandidates([])
     setStage('idle')
     setProgress({ done: 0, total: 0 })
+    setTileStates({})
   }
 
   async function handleFiles(files: File[]) {
@@ -92,9 +103,12 @@ export default function HomePage() {
   }
 
   function toggle(key: string) {
-    setCandidates((prev) =>
-      prev.map((c) => (c.key === key ? { ...c, selected: !c.selected } : c)),
-    )
+    setCandidates((prev) => prev.map((c) => (c.key === key ? { ...c, selected: !c.selected } : c)))
+  }
+
+  function selectAll() {
+    const allSelected = candidates.every((c) => c.selected)
+    setCandidates((prev) => prev.map((c) => ({ ...c, selected: !allSelected })))
   }
 
   async function startExtraction(list: Candidate[]) {
@@ -103,6 +117,8 @@ export default function HomePage() {
 
     setStage('extracting')
     setProgress({ done: 0, total: chosen.length })
+    setTileStates(Object.fromEntries(chosen.map((c) => [c.key, 'queued' as TileState])))
+    setStartedAt(Date.now())
     setError(null)
 
     const batchId = crypto.randomUUID()
@@ -116,6 +132,8 @@ export default function HomePage() {
       blob: c.prepared.blob,
       createdAt,
     }))
+    // Extraction reports progress by image id; the tiles are keyed by candidate.
+    const keyById = new Map(images.map((image, i) => [image.id, chosen[i].key]))
 
     try {
       await pruneStaleBatches()
@@ -132,10 +150,13 @@ export default function HomePage() {
 
       const outcomes = await runBatch(inputs, {
         onProgress: (done, total) => setProgress({ done, total }),
+        onImageStart: (id) => markTile(keyById, id, 'reading'),
+        onImageSettled: (outcome) => markTile(keyById, outcome.id, outcome.ok ? 'done' : 'failed'),
       })
 
       await saveQueue(batchId, toQueueItems(outcomes))
       sessionStorage.setItem(ACTIVE_BATCH_KEY, batchId)
+      sessionStorage.removeItem('txnpipe_review_step')
       for (const c of list) URL.revokeObjectURL(c.previewUrl)
       router.push('/review')
     } catch (err) {
@@ -145,99 +166,97 @@ export default function HomePage() {
     }
   }
 
+  function markTile(keyById: Map<string, string>, id: string, state: TileState) {
+    const key = keyById.get(id)
+    if (key) setTileStates((prev) => ({ ...prev, [key]: state }))
+  }
+
+  const sheetName = info?.title
   const busy = stage === 'preparing' || stage === 'extracting'
-  const selectedCount = candidates.filter((c) => c.selected).length
-  const duplicateCount = candidates.filter((c) => c.duplicateAt !== undefined).length
+  const selectedCandidates = candidates.filter((c) => c.selected)
+
+  // Only claim a time once something has actually finished — an estimate from no
+  // samples is a guess dressed up as information.
+  const secondsLeft = (() => {
+    if (stage !== 'extracting' || progress.done === 0 || progress.done >= progress.total) return
+    const perImage = (Date.now() - startedAt) / progress.done
+    return Math.max(1, Math.round((perImage * (progress.total - progress.done)) / 1000))
+  })()
+
+  if (busy) {
+    const tiles = (stage === 'extracting' ? selectedCandidates : candidates).map((c) => ({
+      key: c.key,
+      previewUrl: c.previewUrl,
+      state: stage === 'extracting' ? (tileStates[c.key] ?? 'queued') : ('done' as TileState),
+    }))
+
+    return (
+      <main className="flex flex-col min-h-dvh">
+        <AppHeader
+          state={stage === 'extracting' ? 'Extracting' : 'Opening photos'}
+          destination="Don't close the app"
+          inert
+        />
+        <ExtractionProgress
+          headline={stage === 'extracting' ? 'Reading receipts' : 'Opening photos'}
+          done={progress.done}
+          total={progress.total}
+          tiles={tiles}
+          secondsLeft={secondsLeft}
+        />
+      </main>
+    )
+  }
 
   return (
     <main className="flex flex-col min-h-dvh">
-      <header className="flex items-center justify-between px-5 pt-12 pb-4">
-        <h1 className="text-xl font-bold tracking-tight">TxnPipe</h1>
-        <div className="flex items-center gap-4">
-          <Link href="/analytics" className="text-sm text-neutral-500 underline-offset-2 hover:underline">
-            Analytics
-          </Link>
-          <Link href="/history" className="text-sm text-neutral-500 underline-offset-2 hover:underline">
-            History
-          </Link>
-        </div>
-      </header>
+      <div className={stage === 'selecting' ? 'opacity-35 pointer-events-none' : undefined}>
+        <AppHeader
+          state="Capture"
+          destination={sheetName ? `${sheetName} · connected` : undefined}
+        />
+      </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center px-5 gap-6">
-        {stage === 'idle' && (
-          <p className="text-center text-neutral-500 text-sm max-w-xs">
-            Snap a receipt, credit card notification, or payslip — or pick a batch from your
-            gallery. TxnPipe will extract them and log them to your spreadsheet.
+      <div
+        className={`flex-1 flex flex-col justify-center gap-[30px] px-5 pb-[60px] ${
+          stage === 'selecting' ? 'opacity-35 pointer-events-none' : ''
+        }`}
+      >
+        <div className="flex flex-col gap-2.5">
+          <h2 className="text-[34px] font-semibold leading-[1.1] tracking-[-0.015em]">
+            Snap it,
+            <br />
+            it&rsquo;s filed.
+          </h2>
+          <p className="text-base leading-[1.5] text-ink-70 max-w-[300px] text-pretty">
+            A receipt, a card notification, a payslip — or a whole batch from your camera roll.
           </p>
-        )}
+        </div>
 
-        {stage === 'selecting' && (
-          <div className="w-full max-w-sm flex flex-col gap-3">
-            <div className="flex items-baseline justify-between">
-              <p className="text-sm font-medium">
-                {selectedCount} of {candidates.length} selected
-              </p>
-              <button
-                type="button"
-                onClick={() => reset(candidates)}
-                className="text-sm text-neutral-500"
-              >
-                Clear
-              </button>
-            </div>
+        <PhotoCapture onFiles={handleFiles} busy={busy} onError={(m) => setError(m || null)} />
 
-            {duplicateCount > 0 && (
-              <p className="text-xs text-amber-600">
-                {duplicateCount} already logged — deselected, tap to include anyway.
-              </p>
-            )}
+        {error && <p className="text-[15px] text-accent-2">{error}</p>}
 
-            <div className="grid grid-cols-3 gap-2">
-              {candidates.map((c) => (
-                <button
-                  key={c.key}
-                  type="button"
-                  onClick={() => toggle(c.key)}
-                  className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
-                    c.selected ? 'border-black' : 'border-neutral-200 opacity-40'
-                  }`}
-                  aria-pressed={c.selected}
-                  aria-label={`${c.name}${c.duplicateAt ? ', already logged' : ''}`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={c.previewUrl} alt="" className="w-full h-full object-cover" />
-                  {c.duplicateAt !== undefined && (
-                    <span className="absolute bottom-0 inset-x-0 bg-amber-500 text-[10px] text-white py-0.5">
-                      Logged {formatDate(c.duplicateAt)}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void startExtraction(candidates)}
-              disabled={selectedCount === 0}
-              className="w-full py-3.5 rounded-2xl bg-black text-white font-semibold text-sm disabled:opacity-40"
-            >
-              Extract {selectedCount} receipt{selectedCount === 1 ? '' : 's'}
-            </button>
+        {lastLogged && (
+          <div className="flex items-baseline justify-between gap-3 pt-1">
+            <span className="eyebrow">Last logged</span>
+            <span className="text-[15px] text-right">
+              {describeEntry(lastLogged)} · {formatAmount(lastLogged.amount)}{' '}
+              {lastLogged.currency} · {formatDayMonth(lastLogged.date)}
+            </span>
           </div>
         )}
-
-        {stage !== 'selecting' && <PhotoCapture onFiles={handleFiles} busy={busy} onError={(m) => setError(m || null)} />}
-
-        {busy && (
-          <p className="text-sm text-neutral-400 animate-pulse" role="status">
-            {stage === 'preparing'
-              ? `Reading ${progress.done}/${progress.total}…`
-              : `Extracting ${progress.done}/${progress.total}…`}
-          </p>
-        )}
-
-        {error && <p className="text-sm text-red-500 text-center max-w-xs">{error}</p>}
       </div>
+
+      {stage === 'selecting' && (
+        <PhotoSheet
+          photos={candidates}
+          onToggle={toggle}
+          onSelectAll={selectAll}
+          onCancel={() => reset(candidates)}
+          onExtract={() => void startExtraction(candidates)}
+        />
+      )}
     </main>
   )
 }

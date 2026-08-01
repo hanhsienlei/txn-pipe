@@ -38,6 +38,10 @@ export interface RunBatchOptions {
   concurrency?: number
   extractOne?: (input: ExtractInput) => Promise<Entry[]>
   onProgress?: (settled: number, total: number) => void
+  /** An image has entered the pool. The extraction screen ticks its tile to "reading". */
+  onImageStart?: (id: string) => void
+  /** An image is finished, one way or the other, independently of the rest of the batch. */
+  onImageSettled?: (outcome: ExtractOutcome) => void
   sleep?: (ms: number) => Promise<void>
   random?: () => number
 }
@@ -102,6 +106,8 @@ export async function runBatch(
     concurrency = DEFAULT_CONCURRENCY,
     extractOne = extractViaApi,
     onProgress,
+    onImageStart,
+    onImageSettled,
     sleep = defaultSleep,
     random = Math.random,
   } = options
@@ -112,7 +118,9 @@ export async function runBatch(
 
   async function worker(): Promise<void> {
     for (let i = nextIndex++; i < inputs.length; i = nextIndex++) {
+      onImageStart?.(inputs[i].id)
       outcomes[i] = await attemptOne(inputs[i], extractOne, sleep, random)
+      onImageSettled?.(outcomes[i])
       onProgress?.(++settled, inputs.length)
     }
   }

@@ -4,8 +4,8 @@
   "description": "Snap a photo, pipe it to your spreadsheet",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000",
+  "background_color": "#f3f2f2",
+  "theme_color": "#f3f2f2",
   "orientation": "portrait",
   "icons": [
     {

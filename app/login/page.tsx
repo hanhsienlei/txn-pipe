@@ -32,24 +32,41 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center px-5">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 w-full max-w-xs">
-        <h1 className="text-xl font-bold tracking-tight text-center">TxnPipe</h1>
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full border border-neutral-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black"
-          autoFocus
-          required
-        />
-        {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-3 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-medium text-sm disabled:opacity-50"
-        >
+    <main className="flex flex-col min-h-dvh">
+      <header className="px-5 pt-[58px]">
+        <span className="text-[21px] font-semibold tracking-[-0.02em]">TxnPipe</span>
+        <div className="h-[3px] bg-text mt-2.5" />
+        <div className="h-px bg-text mt-0.5" />
+        <div className="pt-[7px]">
+          <span className="eyebrow">Locked</span>
+        </div>
+      </header>
+
+      <form
+        onSubmit={handleSubmit}
+        className="flex-1 flex flex-col justify-center gap-[30px] px-5 pb-[60px]"
+      >
+        <div className="flex flex-col gap-2.5">
+          <h2 className="text-[34px] font-semibold leading-[1.1] tracking-[-0.015em]">
+            Your ledger,
+            <br />
+            behind a door.
+          </h2>
+          <label className="flex flex-col gap-[3px] pt-2">
+            <span className="eyebrow">Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="field-input text-[19px] min-h-11 border-b border-ink-30"
+              autoFocus
+              required
+            />
+          </label>
+          {error && <p className="text-[15px] text-accent-2">{error}</p>}
+        </div>
+
+        <button type="submit" disabled={loading} className="btn btn-primary">
           {loading ? 'Checking…' : 'Enter'}
         </button>
       </form>

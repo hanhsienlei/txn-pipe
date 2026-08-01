@@ -2,9 +2,23 @@
 
 import { useEffect, useState, startTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import AppHeader, { StepRail } from '@/components/AppHeader'
 import EntryForm from '@/components/EntryForm'
+import CategorySelect from '@/components/CategorySelect'
 import { blobToBase64 } from '@/lib/image'
 import { runBatch, toQueueItems, replaceImageItems } from '@/lib/extract-batch'
+import { deriveConfidence, type ConfidenceField, type FieldConfidence } from '@/lib/confidence'
+import { formatAmount, formatDayMonth } from '@/lib/format'
+import { useSheetInfo } from '@/lib/sheet-info'
+import { buildSaveResult, writeSaveResult } from '@/lib/save-result'
+import {
+  readHistory,
+  prependHistory,
+  describeEntry,
+  categoryOf,
+  accountOf,
+  categoryHint,
+} from '@/lib/history'
 import {
   ACTIVE_BATCH_KEY,
   getBatch,
@@ -19,6 +33,8 @@ import type { AppendOutcome, TabName } from '@/lib/sheets'
 
 type EntryItem = Extract<QueueItem, { kind: 'entry' }>
 
+const STEP_KEY = 'txnpipe_review_step'
+
 function isEntryItem(item: QueueItem): item is EntryItem {
   return item.kind === 'entry'
 }
@@ -27,17 +43,26 @@ function tabOf(entry: Entry): TabName {
   return entry.type === 'income' ? 'income' : 'expense'
 }
 
-function describe(entry: Entry): string {
-  return entry.type === 'income' ? entry.income : entry.expense
+/** Which tabs this batch will write to — stated in the dateline before you commit. */
+function tabsLabel(entries: Entry[]): string {
+  const tabs = [...new Set(entries.map(tabOf))]
+  return tabs.join(' + ')
 }
 
 export default function ReviewPage() {
   const router = useRouter()
+  const info = useSheetInfo()
   const [batchId, setBatchId] = useState<string | null>(null)
   const [items, setItems] = useState<QueueItem[]>([])
   const [images, setImages] = useState<Record<string, BatchImage>>({})
   const [urls, setUrls] = useState<Record<string, string>>({})
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>({})
+  const [history, setHistory] = useState<Entry[]>([])
+  const [step, setStep] = useState(0)
+  const [onSummary, setOnSummary] = useState(false)
+  const [editingCategory, setEditingCategory] = useState(false)
+  const [direction, setDirection] = useState<'forward' | 'back'>('forward')
+  const [lightbox, setLightbox] = useState<string | null>(null)
   const [retrying, setRetrying] = useState<string | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving'>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -67,11 +92,25 @@ export default function ReviewPage() {
         created.push(urlMap[image.id])
       }
 
+      // Flagged fields are derived once, on arrival, then only ever cleared — so a field
+      // you have already checked doesn't light up again when you navigate back to it.
+      const flags: Record<string, FieldConfidence> = {}
+      for (const item of batch.items) {
+        if (item.kind === 'entry') flags[item.id] = deriveConfidence(item.entry)
+      }
+
+      // A mid-check reload resumes where you were rather than at entry one.
+      const saved = Number(sessionStorage.getItem(STEP_KEY) ?? '0')
+      const resume = Number.isInteger(saved) ? Math.min(Math.max(saved, 0), batch.items.length - 1) : 0
+
       startTransition(() => {
         setBatchId(id)
         setItems(batch.items)
         setImages(imageMap)
         setUrls(urlMap)
+        setConfidence(flags)
+        setHistory(readHistory())
+        setStep(resume)
         setStatus('ready')
       })
     }
@@ -88,20 +127,56 @@ export default function ReviewPage() {
     if (batchId) void saveQueue(batchId, next)
   }
 
+  function goToStep(index: number, dir: 'forward' | 'back' = 'forward') {
+    setDirection(dir)
+    setEditingCategory(false)
+    setOnSummary(false)
+    setStep(index)
+    sessionStorage.setItem(STEP_KEY, String(index))
+  }
+
+  function goToSummary(dir: 'forward' | 'back' = 'forward') {
+    setDirection(dir)
+    setEditingCategory(false)
+    setOnSummary(true)
+  }
+
   function handleEdit(itemId: string, entry: Entry) {
     persist(items.map((item) => (item.id === itemId && item.kind === 'entry' ? { ...item, entry } : item)))
   }
 
-  /** Dismissing an unusable image. The image stays unprocessed, so it can come back in a later batch. */
-  function handleDismiss(imageId: string) {
-    const next = items.filter((item) => item.imageId !== imageId)
+  function markChecked(itemId: string, field: ConfidenceField) {
+    setConfidence((prev) => {
+      if (!prev[itemId]?.[field]) return prev
+      const next = { ...prev[itemId] }
+      delete next[field]
+      return { ...prev, [itemId]: next }
+    })
+  }
+
+  function advance() {
+    if (step >= items.length - 1) goToSummary()
+    else goToStep(step + 1)
+  }
+
+  /** Drop this entry, shorten the rail, and land on whatever now occupies this slot. */
+  function drop(item: QueueItem) {
+    const next =
+      item.kind === 'entry'
+        ? items.filter((other) => other.id !== item.id)
+        : items.filter((other) => other.imageId !== item.imageId)
+
     if (!next.length) {
       if (batchId) void deleteBatch(batchId)
       sessionStorage.removeItem(ACTIVE_BATCH_KEY)
+      sessionStorage.removeItem(STEP_KEY)
       router.push('/')
       return
     }
+
     persist(next)
+    if (step >= next.length) goToSummary()
+    else goToStep(step)
   }
 
   async function handleRetry(imageId: string) {
@@ -112,7 +187,15 @@ export default function ReviewPage() {
     try {
       const base64 = await blobToBase64(image.blob)
       const outcomes = await runBatch([{ id: imageId, base64, mimeType: image.mimeType }])
-      persist(replaceImageItems(items, imageId, toQueueItems(outcomes)))
+      const replacement = toQueueItems(outcomes)
+      setConfidence((prev) => {
+        const next = { ...prev }
+        for (const item of replacement) {
+          if (item.kind === 'entry') next[item.id] = deriveConfidence(item.entry)
+        }
+        return next
+      })
+      persist(replaceImageItems(items, imageId, replacement))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Retry failed')
     } finally {
@@ -121,10 +204,7 @@ export default function ReviewPage() {
   }
 
   function recordSaved(saved: QueueItem[]) {
-    const entries = saved.flatMap((item) => (item.kind === 'entry' ? [item.entry] : []))
-    const history: Entry[] = JSON.parse(localStorage.getItem('txnpipe_history') ?? '[]')
-    history.unshift(...entries)
-    localStorage.setItem('txnpipe_history', JSON.stringify(history.slice(0, 100)))
+    prependHistory(saved.flatMap((item) => (item.kind === 'entry' ? [item.entry] : [])))
 
     // An image counts as processed only once every entry it produced has been written —
     // otherwise a half-saved receipt would be hidden from you as a duplicate next time.
@@ -178,10 +258,14 @@ export default function ReviewPage() {
         return
       }
 
+      const entries = entryItems.map((item) => item.entry)
+      // Captured before the batch goes away — the saved screen has no other source for
+      // which rows were written.
+      writeSaveResult(buildSaveResult(entries, data.outcomes ?? [], info))
       recordSaved(entryItems)
       if (batchId) await deleteBatch(batchId)
       sessionStorage.removeItem(ACTIVE_BATCH_KEY)
-      router.push('/')
+      router.push('/saved')
     } catch {
       setError('Network error. Please try again.')
       setStatus('ready')
@@ -190,142 +274,350 @@ export default function ReviewPage() {
 
   if (status === 'loading') {
     return (
-      <main className="flex items-center justify-center min-h-dvh">
-        <p className="text-neutral-400 text-sm">Loading…</p>
+      <main className="flex flex-col min-h-dvh">
+        <AppHeader state="Check" destination={info?.title} />
+        <div className="flex-1 flex items-center justify-center px-5">
+          <p className="eyebrow">Loading</p>
+        </div>
       </main>
     )
   }
 
-  const entryCount = items.filter((item) => item.kind === 'entry').length
-  const unresolved = items.filter((item) => item.kind !== 'entry').length
+  const sheetName = info?.title
+  const entries = items.filter(isEntryItem).map((item) => item.entry)
+  const animation = direction === 'forward' ? 'step-forward' : 'step-back'
+
+  if (onSummary) {
+    return (
+      <SummaryScreen
+        entries={entries}
+        sheetName={sheetName}
+        saving={status === 'saving'}
+        error={error}
+        animation={animation}
+        onSave={() => void handleSave()}
+        onBack={() => goToStep(items.length - 1, 'back')}
+        onPick={(index) => {
+          const targetId = items.filter(isEntryItem)[index]?.id
+          const target = items.findIndex((item) => item.id === targetId)
+          goToStep(target === -1 ? 0 : target, 'back')
+        }}
+      />
+    )
+  }
+
+  const item = items[step]
+  const url = urls[item.imageId]
 
   return (
     <main className="flex flex-col min-h-dvh">
-      <header className="px-5 pt-12 pb-4">
-        <h1 className="text-xl font-bold tracking-tight">Review</h1>
-        <p className="text-sm text-neutral-500 mt-1">
-          {entryCount} transaction{entryCount === 1 ? '' : 's'} from {Object.keys(images).length}{' '}
-          image{Object.keys(images).length === 1 ? '' : 's'} — check before saving.
-        </p>
-      </header>
+      <AppHeader state={`Check · ${step + 1} of ${items.length}`} destination={sheetName}>
+        <StepRail total={items.length} current={step} />
+      </AppHeader>
 
-      <div className="flex-1 px-5 pb-32 flex flex-col gap-3">
-        {items.map((item) => {
-          const url = urls[item.imageId]
-          const busy = retrying === item.imageId
+      {item.kind === 'entry' ? (
+        editingCategory ? (
+          <CategoryStep
+            key={`cat-${item.id}`}
+            entry={item.entry}
+            history={history}
+            animation={animation}
+            onPick={(value) => {
+              handleEdit(
+                item.id,
+                item.entry.type === 'income'
+                  ? { ...item.entry, source: value }
+                  : { ...item.entry, category: value },
+              )
+              markChecked(item.id, 'category')
+            }}
+            onDone={() => goToStep(step)}
+          />
+        ) : (
+          <>
+            <div key={`step-${item.id}`} className={`flex-1 px-5 pt-5 ${animation}`}>
+              <EntryForm
+                entry={item.entry}
+                confidence={confidence[item.id] ?? {}}
+                imageUrl={url}
+                onChange={(entry) => handleEdit(item.id, entry)}
+                onChecked={(field) => markChecked(item.id, field)}
+                onEditCategory={() => {
+                  setDirection('forward')
+                  setEditingCategory(true)
+                }}
+                onViewImage={() => url && setLightbox(url)}
+              />
+            </div>
 
-          if (item.kind === 'entry') {
-            const isOpen = expanded === item.id
-            return (
-              <div key={item.id} className="border border-neutral-200 rounded-2xl overflow-hidden">
+            <div className="px-5 pt-3.5 pb-[46px] flex flex-col gap-2.5 bg-bg">
+              <button type="button" onClick={advance} className="btn btn-primary">
+                Looks right — next
+              </button>
+              <div className="flex items-center justify-between px-1">
                 <button
                   type="button"
-                  onClick={() => setExpanded(isOpen ? null : item.id)}
-                  className="w-full flex items-center gap-3 p-3 text-left"
-                  aria-expanded={isOpen}
+                  onClick={() => goToStep(step - 1, 'back')}
+                  disabled={step === 0}
+                  className="text-[15px] text-ink-65 disabled:opacity-30"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {url && <img src={url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{describe(item.entry)}</p>
-                    <p className="text-xs text-neutral-500">
-                      {item.entry.date} ·{' '}
-                      {item.entry.type === 'income' ? item.entry.source : item.entry.category}
-                    </p>
-                  </div>
-                  <span className="text-sm font-semibold tabular-nums shrink-0">
-                    {item.entry.type === 'income' ? '+' : ''}
-                    {item.entry.amount} {item.entry.currency}
-                  </span>
-                </button>
-
-                {isOpen && (
-                  <div className="px-3 pb-3 border-t border-neutral-100 pt-3">
-                    <EntryForm
-                      initial={item.entry}
-                      onChange={(entry) => handleEdit(item.id, entry)}
-                      onSubmit={() => setExpanded(null)}
-                      onRetake={() => setExpanded(null)}
-                      hideActions
-                    />
-                    <div className="flex gap-3 pt-3">
-                      <button
-                        type="button"
-                        onClick={() => persist(items.filter((i) => i.id !== item.id))}
-                        className="flex-1 py-2.5 rounded-xl border border-neutral-300 text-sm font-medium text-red-500"
-                      >
-                        Remove
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setExpanded(null)}
-                        className="flex-1 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-medium"
-                      >
-                        Done
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          }
-
-          const isFailure = item.kind === 'failed'
-          return (
-            <div
-              key={item.id}
-              className={`border rounded-2xl p-3 flex items-center gap-3 ${
-                isFailure ? 'border-red-200 bg-red-50/50' : 'border-amber-200 bg-amber-50/50'
-              }`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {url && <img src={url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
-                  {isFailure ? 'Extraction failed' : 'No transactions found'}
-                </p>
-                <p className="text-xs text-neutral-500 truncate">
-                  {isFailure ? item.error : 'Blurry receipt, or not a receipt at all.'}
-                </p>
-              </div>
-              <div className="flex flex-col gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => void handleRetry(item.imageId)}
-                  disabled={busy}
-                  className="px-3 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-medium disabled:opacity-50"
-                >
-                  {busy ? '…' : 'Retry'}
+                  ← Back
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleDismiss(item.imageId)}
-                  disabled={busy}
-                  className="px-3 py-1.5 rounded-lg border border-neutral-300 text-xs font-medium"
+                  onClick={() => drop(item)}
+                  className="text-[15px] text-ink-65"
                 >
-                  {isFailure ? 'Skip' : 'Not a receipt'}
+                  Not a receipt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToSummary()}
+                  className="text-[15px] text-accent"
+                >
+                  Skip to summary
                 </button>
               </div>
             </div>
-          )
-        })}
-      </div>
+          </>
+        )
+      ) : (
+        <UnreadableStep
+          key={`bad-${item.id}`}
+          kind={item.kind}
+          message={item.kind === 'failed' ? item.error : undefined}
+          imageUrl={url}
+          busy={retrying === item.imageId}
+          animation={animation}
+          onRetry={() => void handleRetry(item.imageId)}
+          onDismiss={() => drop(item)}
+          onBack={step === 0 ? undefined : () => goToStep(step - 1, 'back')}
+          onSkip={() => goToSummary()}
+        />
+      )}
 
-      <div className="fixed bottom-0 inset-x-0 px-5 pb-8 pt-4 bg-gradient-to-t from-white via-white to-transparent">
-        {error && <p className="mb-3 text-sm text-red-500 text-center">{error}</p>}
-        {unresolved > 0 && (
-          <p className="mb-3 text-xs text-neutral-500 text-center">
-            {unresolved} image{unresolved === 1 ? '' : 's'} still need{unresolved === 1 ? 's' : ''} a
-            decision before saving.
-          </p>
-        )}
+      {lightbox && (
         <button
           type="button"
-          onClick={() => void handleSave()}
-          disabled={status === 'saving' || unresolved > 0 || entryCount === 0}
-          className="w-full py-3.5 rounded-2xl bg-neutral-900 text-white font-semibold text-sm disabled:opacity-40"
+          aria-label="Close image"
+          onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-50 bg-[rgba(32,30,29,0.9)] flex items-center justify-center p-5"
         >
-          {status === 'saving' ? 'Saving…' : `Save All (${entryCount})`}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="Receipt" className="max-w-full max-h-full object-contain" />
+        </button>
+      )}
+    </main>
+  )
+}
+
+/** Screen 5 — the category chips, given a step of their own. */
+function CategoryStep({
+  entry,
+  history,
+  animation,
+  onPick,
+  onDone,
+}: {
+  entry: Entry
+  history: Entry[]
+  animation: string
+  onPick: (value: string) => void
+  onDone: () => void
+}) {
+  const current = categoryOf(entry)
+  const hint = categoryHint(describeEntry(entry), entry.type, history)
+
+  return (
+    <>
+      <div className={`flex-1 px-5 pt-6 flex flex-col gap-[22px] ${animation}`}>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-[28px] font-semibold tracking-[-0.015em]">
+            {entry.type === 'income' ? 'Which source?' : 'Which category?'}
+          </h2>
+          <p className="text-base text-ink-70">
+            {describeEntry(entry)} · {formatAmount(entry.amount)} {entry.currency}
+          </p>
+        </div>
+
+        {hint && hint.category !== current && (
+          <p className="flex items-center gap-2 text-[15px] text-ink-70">
+            <i className="ph-duotone ph-clock-counter-clockwise text-[18px] text-accent" aria-hidden />
+            Your last {hint.count} {hint.label} entries went to{' '}
+            <span className="text-accent-600">{hint.category}</span>
+          </p>
+        )}
+
+        <CategorySelect type={entry.type} value={current} onChange={onPick} />
+      </div>
+
+      <div className="px-5 pt-3.5 pb-[46px]">
+        <button type="button" onClick={onDone} className="btn btn-primary">
+          Set {current} — next
+        </button>
+      </div>
+    </>
+  )
+}
+
+/**
+ * An image that produced nothing usable. Not in the prototype, but every image reaches
+ * the queue by design, so each one needs a step and a decision of its own.
+ */
+function UnreadableStep({
+  kind,
+  message,
+  imageUrl,
+  busy,
+  animation,
+  onRetry,
+  onDismiss,
+  onBack,
+  onSkip,
+}: {
+  kind: 'empty' | 'failed'
+  message?: string
+  imageUrl?: string
+  busy: boolean
+  animation: string
+  onRetry: () => void
+  onDismiss: () => void
+  onBack?: () => void
+  onSkip: () => void
+}) {
+  return (
+    <>
+      <div className={`flex-1 px-5 pt-5 flex flex-col gap-5 ${animation}`}>
+        {imageUrl && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={imageUrl}
+            alt=""
+            className="w-[72px] h-[72px] object-cover rounded-sharp bg-surface"
+          />
+        )}
+        <div className="flex flex-col gap-2">
+          <h2 className="text-[28px] font-semibold tracking-[-0.015em]">
+            {kind === 'failed' ? 'Couldn’t read this one' : 'No transactions here'}
+          </h2>
+          <p className="text-base leading-[1.45] text-ink-70 max-w-[320px] text-pretty">
+            {kind === 'failed'
+              ? (message ?? 'Extraction failed.')
+              : 'Nothing on this image looks like a transaction — a blurry receipt, or not a receipt at all.'}
+          </p>
+        </div>
+      </div>
+
+      <div className="px-5 pt-3.5 pb-[46px] flex flex-col gap-2.5">
+        <button type="button" onClick={onRetry} disabled={busy} className="btn btn-primary">
+          {busy ? 'Reading…' : 'Try reading it again'}
+        </button>
+        <div className="flex items-center justify-between px-1">
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={!onBack}
+            className="text-[15px] text-ink-65 disabled:opacity-30"
+          >
+            ← Back
+          </button>
+          <button type="button" onClick={onDismiss} className="text-[15px] text-ink-65">
+            Not a receipt
+          </button>
+          <button type="button" onClick={onSkip} className="text-[15px] text-accent">
+            Skip to summary
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/** Screen 6 — one last read of everything, with a total, before anything is written. */
+function SummaryScreen({
+  entries,
+  sheetName,
+  saving,
+  error,
+  animation,
+  onSave,
+  onBack,
+  onPick,
+}: {
+  entries: Entry[]
+  sheetName?: string
+  saving: boolean
+  error: string | null
+  animation: string
+  onSave: () => void
+  onBack: () => void
+  onPick: (index: number) => void
+}) {
+  const currencies = [...new Set(entries.map((entry) => entry.currency))]
+  const mixed = new Set(entries.map((entry) => entry.type)).size > 1
+
+  // Amounts stay exactly as extracted — no conversion, ever. A batch spanning two
+  // currencies gets one total per currency rather than one meaningless number.
+  const totals = currencies.map((currency) => ({
+    currency,
+    value: entries
+      .filter((entry) => entry.currency === currency)
+      .reduce((sum, entry) => sum + (mixed && entry.type === 'expense' ? -entry.amount : entry.amount), 0),
+  }))
+
+  const destination = sheetName ? `${sheetName} · ${tabsLabel(entries)}` : undefined
+
+  return (
+    <main className="flex flex-col min-h-dvh">
+      <AppHeader state="Ready to save" destination={destination} />
+
+      <div className={`flex-1 px-5 pt-5 flex flex-col gap-4 ${animation}`}>
+        <h2 className="text-[30px] font-semibold tracking-[-0.015em]">
+          {entries.length} checked
+        </h2>
+
+        <div className="flex flex-col">
+          {entries.map((entry, index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={() => onPick(index)}
+              className="flex items-baseline justify-between gap-3 py-3 border-b border-ink-12 text-left"
+            >
+              <span className="flex flex-col gap-px min-w-0">
+                <span className="text-[18px] truncate">{describeEntry(entry)}</span>
+                <span className="text-sm text-ink-55 truncate">
+                  {formatDayMonth(entry.date)} · {categoryOf(entry)} · {accountOf(entry)}
+                </span>
+              </span>
+              <span className="text-[18px] tabular-nums shrink-0">
+                {formatAmount(entry.amount)}
+              </span>
+            </button>
+          ))}
+
+          <div className="flex items-baseline justify-between gap-3 pt-3.5">
+            <span className="eyebrow">Total</span>
+            <span className="flex flex-col items-end gap-1">
+              {totals.map((total) => (
+                <span key={total.currency} className="text-2xl font-semibold tabular-nums">
+                  {formatAmount(total.value)} {total.currency}
+                </span>
+              ))}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-5 pt-3.5 pb-[46px] flex flex-col gap-2.5">
+        {error && <p className="text-[15px] text-accent-2 text-center">{error}</p>}
+        <button type="button" onClick={onSave} disabled={saving} className="btn btn-primary">
+          {saving
+            ? 'Saving…'
+            : `Save ${entries.length} row${entries.length === 1 ? '' : 's'} to sheet`}
+        </button>
+        <button type="button" onClick={onBack} className="btn min-h-11 text-base font-normal text-ink-65">
+          Check them again
         </button>
       </div>
     </main>

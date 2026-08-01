@@ -12,6 +12,10 @@ interface Props {
  * Picks the images for a batch. Gallery allows multi-select — that's the weekly
  * camera-roll cleanup. Camera stays single-shot because you can't take several photos in
  * one go anyway.
+ *
+ * Both inputs are transparent overlays on top of the visible buttons rather than inputs
+ * triggered by a click handler: iOS only opens the picker for a genuine user gesture on
+ * the input itself, and a synthesised `.click()` gets swallowed.
  */
 export default function PhotoCapture({ onFiles, busy = false, onError }: Props) {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -23,49 +27,36 @@ export default function PhotoCapture({ onFiles, busy = false, onError }: Props) 
     onFiles(files)
   }
 
-  const btnBase: React.CSSProperties = {
-    padding: '14px 0',
-    borderRadius: 14,
-    fontSize: 15,
-    fontWeight: 600,
-    textAlign: 'center',
-    opacity: busy ? 0.5 : 1,
-    userSelect: 'none',
-  }
-
-  const overlayInput: React.CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-    opacity: 0,
-    cursor: busy ? 'default' : 'pointer',
-  }
-
   return (
-    <div className="flex gap-3 w-full max-w-sm">
-      <div style={{ position: 'relative', flex: 1 }}>
-        <div style={{ ...btnBase, background: '#ffffff', color: '#000000' }}>Camera</div>
+    <div className="flex flex-col gap-2.5" style={{ opacity: busy ? 0.5 : 1 }}>
+      <div className="relative">
+        <div className="btn btn-primary">
+          <i className="ph-duotone ph-camera text-[22px]" aria-hidden />
+          Take a photo
+        </div>
         <input
           type="file"
           accept="image/*"
           capture="environment"
           disabled={busy}
           onChange={handleChange}
-          style={overlayInput}
+          className="absolute inset-0 w-full h-full opacity-0"
           aria-label="Take a photo"
         />
       </div>
-      <div style={{ position: 'relative', flex: 1 }}>
-        <div style={{ ...btnBase, background: '#27272a', color: '#ffffff' }}>Gallery</div>
+
+      <div className="relative">
+        <div className="btn btn-outline min-h-[56px] text-[17px]">
+          <i className="ph-duotone ph-images text-[22px]" aria-hidden />
+          Choose from gallery
+        </div>
         <input
           type="file"
           accept="image/*"
           multiple
           disabled={busy}
           onChange={handleChange}
-          style={overlayInput}
+          className="absolute inset-0 w-full h-full opacity-0"
           aria-label="Choose from gallery"
         />
       </div>

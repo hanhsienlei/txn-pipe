@@ -1,8 +1,15 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist } from 'next/font/google'
+import { Source_Serif_4 } from 'next/font/google'
+import '@phosphor-icons/web/duotone'
 import './globals.css'
 
-const geist = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
+// Source Serif 4 for everything — headings, body, UI chrome, numbers. No sans-serif anywhere.
+const sourceSerif = Source_Serif_4({
+  variable: '--font-source-serif',
+  subsets: ['latin'],
+  weight: ['400', '600', '700'],
+  style: ['normal', 'italic'],
+})
 
 export const metadata: Metadata = {
   title: 'TxnPipe',
@@ -14,13 +21,20 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#000000',
+  themeColor: '#f3f2f2',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geist.variable} h-full antialiased`}>
-      <body className="min-h-full bg-white text-neutral-900 font-sans">{children}</body>
+    <html lang="en" className={`${sourceSerif.variable} h-full`}>
+      {/*
+        A phone app first: the column is capped at a handset width and centred, so the
+        20px side padding and 56px buttons stay the size they were drawn at instead of
+        stretching across a desktop window.
+      */}
+      <body className="min-h-full bg-bg text-text">
+        <div className="mx-auto w-full max-w-[430px]">{children}</div>
+      </body>
     </html>
   )
 }
